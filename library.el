@@ -3,6 +3,9 @@
 ;; Copyright (C) 2023  Paul D. Nelson
 
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
+;; Version: 0.1
+;; URL: https://github.com/ultronozm/library.el
+;; Package-Requires: ((emacs "29.1") (czm-tex-util "0.1"))
 ;; Keywords: tex, convenience
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -25,12 +28,22 @@
 
 ;;; Code:
 
+(require 'bibtex)
+(require 'czm-tex-util)
+(require 'dired)
+(require 'org-capture)
+
+(defcustom library-pdf-directory "~/Dropbox/math documents/unsorted/"
+  "Directory where PDFs are stored."
+  :type 'string
+  :group 'library)
+
 (defun library-move-pdf ()
-  "Prompt the user for a new name for the current PDF file, and then move it to the unsorted math documents folder."
+  "Move current PDF file to PDF directory, with a new name."
   (interactive)
   (when (string= (file-name-extension (buffer-file-name)) "pdf")
     (let* ((new-name (read-string "Enter new name (without .pdf): "))
-           (new-dir "~/Dropbox/math documents/unsorted/")
+           (new-dir library-pdf-directory)
            (new-path (concat new-dir new-name ".pdf")))
       (rename-file (buffer-file-name) new-path)
       (find-alternate-file new-path)
@@ -38,12 +51,13 @@
 
 (defun library-filename-from-bibtex ()
   "Transform the current bibtex entry into a filename.
-The filename is the first two authors' last names separated by a hyphen followed by title of paper converted to alnum no spaces."
+The filename is derived from the publication date, authors' last
+names, and the title of the paper."
   (bibtex-beginning-of-entry)
   (when-let* ((entry (bibtex-parse-entry))
 	      (year (bibtex-text-in-field "year" entry))
-	      (authors (sultex--remove-braces-accents (bibtex-text-in-field "author" entry)))
-	      (title (sultex--remove-braces-accents (bibtex-text-in-field "title" entry))))
+	      (author (czm-tex-util-remove-braces-accents (bibtex-text-in-field "author" entry)))
+	      (title (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
     (let* (
 	   (lastnames
 	    (mapconcat
@@ -53,7 +67,7 @@ The filename is the first two authors' last names separated by a hyphen followed
 		(downcase
 		 (replace-regexp-in-string "[^a-zA-Z]" ""
 					   (car (split-string x ", ")))))
-	      (split-string authors " and "))
+	      (split-string author " and "))
 	     "_"))
 	   (clean-title
 	    (replace-regexp-in-string
@@ -74,15 +88,15 @@ The filename is the first two authors' last names separated by a hyphen followed
                      (let ((name))
                        (with-temp-buffer
                          (clipboard-yank)
-                         (beginning-of-buffer)
+                         (goto-char (point-min))
                          (search-forward-regexp "{\\([^,]+\\)")
                          (setq name (match-string 1))
                          (if (not name)
-                             (error "invalid bib entry in clipboard")))
+                             (error "Invalid bib entry in clipboard")))
                        (find-file "~/doit/refs.bib")
-                       (beginning-of-buffer)
+                       (goto-char (point-min))
                        (unless (search-forward name (point-max) t)
-                         (end-of-buffer)
+                         (goto-char (point-max))
                          (newline-and-indent)
                          (clipboard-yank)
                          (save-buffer))
@@ -98,8 +112,7 @@ The filename is the first two authors' last names separated by a hyphen followed
 (defun library--process-pdf-bibtex-with-log (file-name bibtex-entry &optional arxiv-id)
   (when-let ((newpath
 		(library--manage-pdf-via-bibtex file-name bibtex-entry)))
-      (library--capture-journal-entry (library-generate-arxiv-log-entry arxiv-id bibtex-entry newpath)))
-  )
+      (library--capture-journal-entry (library-generate-arxiv-log-entry arxiv-id bibtex-entry newpath))))
 
 (defun library-manage-pdf-via-clipboard-bibtex ()
   (interactive)
@@ -117,15 +130,15 @@ The filename is the first two authors' last names separated by a hyphen followed
 			  (let ((name))
 			    (with-temp-buffer
 			      (insert bibtex-entry)
-			      (beginning-of-buffer)
+                              (goto-char (point-min))
 			      (search-forward-regexp "{\\([^,]+\\)")
 			      (setq name (match-string 1))
 			      (if (not name)
-				  (error "invalid bib entry")))
+				  (error "Invalid bib entry")))
 			    (find-file "~/doit/refs.bib")
-			    (beginning-of-buffer)
+                            (goto-char (point-min))
 			    (unless (search-forward name (point-max) t)
-			      (end-of-buffer)
+                              (goto-char (point-max))
 			      (newline-and-indent)
 			      (insert bibtex-entry)
 			      (save-buffer))
@@ -137,15 +150,15 @@ The filename is the first two authors' last names separated by a hyphen followed
 			  (let ((name))
 			    (with-temp-buffer
 			      (insert bibtex-entry)
-			      (beginning-of-buffer)
+			      (goto-char (point-min))
 			      (search-forward-regexp "{\\([^,]+\\)")
 			      (setq name (match-string 1))
 			      (if (not name)
-				  (error "invalid bib entry")))
+				  (error "Invalid bib entry")))
 			    (find-file "~/doit/refs.bib")
-			    (beginning-of-buffer)
+                            (goto-char (point-min))
 			    (unless (search-forward name (point-max) t)
-			      (end-of-buffer)
+                              (goto-char (point-max))
 			      (newline-and-indent)
 			      (insert bibtex-entry)
 			      (save-buffer))
@@ -173,8 +186,7 @@ The filename is the first two authors' last names separated by a hyphen followed
 	  ;;  if arxiv-id contains a dot:
 	  (if (string-match "\\." arxiv-id)
 	      (format "https://ui.adsabs.harvard.edu/abs/arXiv:%s/exportcitation" arxiv-id)
-	    (format "https://ui.adsabs.harvard.edu/abs/arXiv:math%s/exportcitation" (concat "%2F" arxiv-id)))
-	  )
+	    (format "https://ui.adsabs.harvard.edu/abs/arXiv:math%s/exportcitation" (concat "%2F" arxiv-id))))
          (response-buffer (url-retrieve-synchronously url)))
     (with-current-buffer response-buffer
       (if (not (re-search-forward "<textarea class=\"export-textarea form-control\"" nil t))
@@ -204,19 +216,18 @@ The filename is the first two authors' last names separated by a hyphen followed
       (setq filename (buffer-file-name))))
   (when-let* ((arxiv-id (file-name-base filename))
 	      (bibtex-entry (library--bibtex-from-arxiv-id arxiv-id)))
-    (library--process-pdf-bibtex-with-log filename bibtex-entry arxiv-id)    
-    ))
+    (library--process-pdf-bibtex-with-log filename bibtex-entry arxiv-id)))
 
 (defun library-deal-with-arxiv-file-manual-id ()
   (interactive)
   (let ((filename
 	 (if (derived-mode-p 'dired-mode)
-	     (setq filename (dired-get-filename))
-	   (setq filename (buffer-file-name))))
+	     (dired-get-filename)
+	   (buffer-file-name)))
 	(arxiv-id (read-string "arxiv id: ")))
     (when-let ((bibtex-entry (library--bibtex-from-arxiv-id arxiv-id)))
-      (library--process-pdf-bibtex-with-log filename bibtex-entry arxiv-id)    
-      )))
+      (library--process-pdf-bibtex-with-log filename bibtex-entry arxiv-id))))
+
 
 (defun library-deal-with-arxiv-files-dired ()
   (interactive)
@@ -233,10 +244,10 @@ The filename is the first two authors' last names separated by a hyphen followed
 	      (insert bibtex-entry)
 	      (bibtex-beginning-of-entry)
 	      (bibtex-parse-entry)))
-	   (authors (sultex--remove-braces-accents (bibtex-text-in-field "author" entry)))
+	   (author (czm-tex-util-remove-braces-accents (bibtex-text-in-field "author" entry)))
 	   (title
 	    (string-clean-whitespace
-	     (sultex--remove-braces-accents (bibtex-text-in-field "title" entry))))
+	     (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
 	   (year (bibtex-text-in-field "year" entry)))
       (concat
        title
@@ -247,13 +258,34 @@ The filename is the first two authors' last names separated by a hyphen followed
        (when arxiv-id
 	 (format ":ARXIV_ID: %s\n" arxiv-id))
        (format ":YEAR: %s\n" year)
-       (format ":AUTHORS: %s\n" authors)
+       (format ":AUTHORS: %s\n" author)
        (format ":TITLE: %s\n" title)
        ":END:\n"
        "\n"
        (format "[[%s][Dropbox link]]\n\n" newpath)
        (when arxiv-id
 	 (format "[[https://arxiv.org/abs/%s][arXiv link]]\n\n" arxiv-id))))))
+
+;;;###autoload
+(defun library-clipboard-to-refs ()
+  (interactive)
+  (save-window-excursion
+    (let ((name))
+      (with-temp-buffer
+	(clipboard-yank)
+	(beginning-of-buffer)
+	(search-forward-regexp "{\\([^,]+\\)")
+	(setq name (match-string 1))
+	(if (not name)
+	    (error "invalid bib entry in clipboard")))
+      (find-file "~/doit/refs.bib")
+      (beginning-of-buffer)
+      (if (search-forward name (point-max) t)
+	  (error "bib entry already exists"))
+      (end-of-buffer)
+      (newline-and-indent)
+      (clipboard-yank)
+      (save-buffer))))
 
 (provide 'library)
 ;;; library.el ends here
