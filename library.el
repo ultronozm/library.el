@@ -114,6 +114,7 @@ names, and the title of the paper."
 		(library--manage-pdf-via-bibtex file-name bibtex-entry)))
       (library--capture-journal-entry (library-generate-arxiv-log-entry arxiv-id bibtex-entry newpath))))
 
+;;;###autoload
 (defun library-manage-pdf-via-clipboard-bibtex ()
   (interactive)
   (let* ((file-name (if (derived-mode-p 'dired-mode)
