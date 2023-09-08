@@ -32,6 +32,8 @@
 (require 'czm-tex-util)
 (require 'dired)
 (require 'org-capture)
+(require 'url)
+(require 'xml)
 
 (defcustom library-pdf-directory "~/Dropbox/math documents/unsorted/"
   "Directory where PDFs are stored."
@@ -251,13 +253,8 @@ names, and the title of the paper."
 	       (libxml-parse-xml-region start end)))))))))
 
 (defun library--capture-journal-entry (text)
-  ;; Start the capture process
   (org-capture nil "j")
-  
-  ;; Insert the provided text
   (insert text)
-  
-  ;; Finalize the capture
   (org-capture-finalize))
 
 ;;;###autoload
