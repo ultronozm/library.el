@@ -59,6 +59,9 @@ names, and the title of the paper."
 	      (author (czm-tex-util-remove-braces-accents (bibtex-text-in-field "author" entry)))
 	      (title (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
     (let* (
+           ; this concatenates first and last names when using arxiv
+           ; API bibtex entries.  could optimize it to just use last
+           ; names, but this is fine for now.
 	   (lastnames
 	    (mapconcat
 	     'identity
@@ -179,9 +182,57 @@ names, and the title of the paper."
     new-path))
 
 
-
-
 (defun library--bibtex-from-arxiv-id (arxiv-id)
+  "Retrieve bibtex entry from arxiv id using arxiv API."
+  (interactive "sarxiv id: ")
+
+  (unless (string-match "\\.\\|/" arxiv-id)
+    (setq arxiv-id (concat "math/" arxiv-id)))
+
+  (let* ((url-request-method "GET")
+         (url-request-extra-headers nil)
+         (url-mime-accept-string "application/atom+xml")
+         (url (format "http://export.arxiv.org/api/query?id_list=%s" arxiv-id))
+         (buffer (url-retrieve-synchronously url))
+         (xml (with-current-buffer buffer (xml-parse-region url-http-end-of-headers (point-max)))))
+    (kill-buffer buffer)
+
+    (let* ((entry (car (xml-get-children (car xml) 'entry)))
+           (id (car (xml-node-children (assoc 'id entry))))
+           (published (car (xml-node-children (assoc 'published entry))))
+           (year (substring published 0 4))
+           (month (substring published 5 7))
+           (title (replace-regexp-in-string
+                   "\\s-+" " "
+                   (car (xml-node-children (assoc 'title entry)))))
+           (authors
+            (mapconcat
+             (lambda (a) (car (xml-node-children (assoc 'name a))))
+             (xml-get-children entry 'author)
+             ", "))
+           (categories
+            (mapconcat
+             (lambda (c) (cdr (assoc 'term (xml-node-children c))))
+             (xml-get-children entry 'category)
+             ", "))
+           (summary (replace-regexp-in-string
+                     "\\s-+" " "
+                     (car (xml-node-children (assoc 'summary entry))))))
+      (format "
+@article{%sarXiv%s,
+  title                    = {%s},
+  author                   = {%s},
+  year                     = {%s},
+  month                    = {%s},
+  url                      = {%s},
+  note                     = {arXiv:%s},
+  categories               = {%s},
+  eprinttype               = {arXiv},
+  abstract                 = {%s}
+}" year arxiv-id title authors year month id arxiv-id categories (substring summary 0 (- (length summary) 1))))))
+
+(defun library--bibtex-from-arxiv-id-nasa-ads (arxiv-id)
+  "Retrieve bibtex entry from arxiv id using NASA ADS."
   (let* ((url
 	  ;;  if arxiv-id contains a dot:
 	  (if (string-match "\\." arxiv-id)
@@ -208,6 +259,7 @@ names, and the title of the paper."
   ;; Finalize the capture
   (org-capture-finalize))
 
+;;;###autoload
 (defun library-deal-with-arxiv-file (&optional filename)
   (interactive)
   (unless filename
