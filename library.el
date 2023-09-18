@@ -72,7 +72,7 @@ names, and the title of the paper."
 		(downcase
 		 (replace-regexp-in-string "[^a-zA-Z]" ""
 					   (car (split-string x ", ")))))
-	      (split-string author "\\band\\b"))
+	      (split-string author "[[:space:]]*\\(and\\|,\\)[[:space:]]*"))
 	     "_"))
 	   (clean-title
 	    (replace-regexp-in-string
