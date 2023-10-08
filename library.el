@@ -1,4 +1,4 @@
-;;; library.el --- Helper functions for managing PDFs and BibTeX entries  -*- lexical-binding: t; -*-
+;;; library.el --- Helper functions for managing downloaded papers -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2023  Paul D. Nelson
 
@@ -23,8 +23,18 @@
 
 ;;; Commentary:
 
-;; Helper functions for managing PDFs and BibTeX entries.
-;; This is a work in progress.
+;; Helper functions for managing downloaded PDFs, e.g.:
+;; 
+;; `library-find-newest-downloaded-pdf' finds the newest PDF file in
+;; the downloads directory.
+;;
+;; `library-process-clipboard' processes the current PDF file using
+;; BibTeX stored in the clipboard -- moves it to a dedicated folder,
+;; names it appropriately, and records it in your BibTeX file and
+;; journal.
+;;
+;; `library-process-arxiv' processes the current PDF file using BibTeX
+;; retrieved via the arXiv API.
 
 ;;; Code:
 
@@ -33,7 +43,6 @@
 (require 'dired)
 (require 'org-capture)
 (require 'url)
-(require 'url-http)
 (require 'xml)
 
 (defcustom library-pdf-directory "~/Dropbox/math documents/unsorted/"
@@ -46,11 +55,31 @@
   :type 'string
   :group 'library)
 
+(defcustom library-download-directory "~/Downloads/"
+  "Directory where PDFs are downloaded."
+  :type 'string
+  :group 'library)
+
 (defcustom library-org-capture-template-key "j"
   "Key to use for journal capture template.
 If nil, then no journal entry is created."
   :type 'string
   :group 'library)
+
+
+;;;###autoload
+(defun library-find-newest-downloaded-pdf ()
+  "Find newest PDF file in the download directory."
+  (interactive)
+  (let* ((downloads-dir (expand-file-name library-download-directory))
+         (pdf-files (directory-files downloads-dir t "\\.pdf$"))
+         (pdf-files-sorted (sort pdf-files
+                                 (lambda (a b)
+                                  (time-less-p (nth 5 (file-attributes b))
+                                               (nth 5 (file-attributes a)))))))
+    (if pdf-files
+        (find-file (car pdf-files-sorted))
+      (message "No PDF files found in download directory."))))
 
 (defun library--filename-from-bibtex ()
   "Generate filename from current bibtex entry.
@@ -157,10 +186,10 @@ Finally, create a journal entry."
       (library--capture-journal-entry (library--generate-log-entry arxiv-id bibtex newpath))))
 
 ;;;###autoload
-(defun library-process-pdf ()
-  "Process PDF file using BiBTeX stored in clipboard.
+(defun library-process-clipboard ()
+  "Process PDF file using BibTeX stored in clipboard.
 First, move PDF file to the PDF directory, renamed according to
-the BiBTeX.  Next, add BiBTeX to the references file, if not
+the BibTeX.  Next, add BibTeX to the references file, if not
 already there.  Finally, create a journal entry concerning this
 reference."
   (interactive)

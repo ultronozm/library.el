@@ -1,0 +1,50 @@
+#+title: czm-tex-ref.el: Helper functions for managing downloaded papers
+#+author: Paul Nelson
+
+* Overview
+This package provides commands for managing downloaded papers and their associated BibTeX.  It is much simpler than the many existing packages addressing this general need, such as [[https://github.com/cpitclaudel/biblio.el][biblio.el]] and [[https://github.com/emacsmirror/zotero][emacs-zotero]], but I wasn't able to get those to do exactly what I wanted.
+
+The most common ways that I use this package are as follows:
+
+** Opening the most recently downloaded paper: =library-find-newest-downloaded-pdf=
+After I've downloaded a paper, the first thing I want to do is open it in Emacs (using [[https://github.com/vedang/pdf-tools][pdf-tools]]).  I do this by running the command
+=library-find-newest-downloaded-pdf=, which -- surprise, surprise -- searches through my downloads folder for the newest PDF file, and opens that.
+
+** Processing papers downloaded from the arXiv: =library-process-arxiv=
+If the paper came from the arXiv, then, after opening it in Emacs, I run the command =library-process-arxiv=, which does the following:
+- Download bibliographic data for the paper using the arXiv API.
+- Move the file to a designated PDF storage folder (for me, in Dropbox) and rename it to something intelligible, containing the publication year, authors and title, so that I can later find the paper.
+- Add a BibTeX entry to my "refs.bib", so that I can later cite the paper.
+- Add a journal entry to my "log.org" with a link to my downloaded copy of the paper, so that I can keep track of when I looked at which papers.  I also often use this as a place to store paper-specific notes-to-self (typically in an [[https://orgmode.org/worg/org-contrib/babel/languages/ob-doc-LaTeX.html][org-mode LaTeX source block]]).  
+
+  Note: for papers using old arXiv identifiers, this command assumes that they came from "math".  For non-math papers, see below.
+
+** Processing papers downloaded from other sources: =library-process-clipboard=
+For a paper coming from somewhere other than the arXiv (or an old non-math arXiv paper), I find a BibTeX entry for that paper (typically using [[https://mathscinet.ams.org/mathscinet/publications-search][MathSciNet]]) and copy it to the clipboard.  Then, after opening the paper in Emacs, I run the command =library-process-clipboard=.  This carries out the same steps as above, but using the BibTeX stored in the clipboard rather than that obtained via the arXiv API.
+
+
+* Configuration
+This package requires [[https://github.com/ultronozm/czm-tex-util.el][czm-tex-util.el]], so install that first.
+
+Download this repository, install using =M-x package-install-file= (or package-vc-install, straight, elpaca, ...), and add something like the following to your [[https://www.emacswiki.org/emacs/InitFile][init file]]:
+#+begin_src elisp
+(use-package library
+  :custom
+  (library-pdf-directory "~/Dropbox/math documents/unsorted/")
+  (library-bibtex-file "~/doit/refs.bib")
+  (library-download-directory "~/Downloads/")
+  (library-org-capture-template-key "j"))
+
+(add-to-list 'org-capture-templates
+             '("j" "Journal" entry (file+datetree "~/doit/log.org")
+               "* %?\nEntered on %U\n"))
+#+end_src
+
+Modify suitably, replacing the paths above with paths to your own PDF storage directory, BibTeX file, download directory, and log file.
+
+* Usage
+The three commands that I use most often were described already in [[Overview]].  The following supplementary commands are occasionally useful:
+- =library-process-arxiv-manual-id= :: The command =library-process-arxiv= determines the arXiv identifier for the current file by looking at the file name.  This command behaves similarly, but instead prompts for the arXiv identifier from the minibuffer.  Useful in cases where you've already renamed an arXiv paper to something else.
+- =library-process-arxiv-dired= :: This command processes the marked PDF files in [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html][Dired]], assuming that each file has been downloaded from the arXiv and has not been renamed.  This is useful for when, following an arXiv binge, I wind up with multiple unprocessed downloaded arXiv papers.
+- =library-clipboard-to-refs= :: This command adds the BibTeX stored in the clipboard to the references file.  Useful for when I want to a cite a paper, but don't care to download it.
+- =library-move-pdf= :: This command moves a PDF file to the designated PDF storage folder and prompts for a new name for the file being moved.  Useful for files that do not have BibTeX entries available (e.g., informal notes or book chapters).
