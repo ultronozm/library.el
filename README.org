@@ -1,4 +1,4 @@
-#+title: czm-tex-ref.el: Helper functions for managing downloaded papers
+#+title: library.el: Helper functions for managing downloaded papers
 #+author: Paul Nelson
 
 * Overview
