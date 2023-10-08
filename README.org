@@ -8,7 +8,7 @@ The most common ways that I use this package are as follows:
 
 ** Opening the most recently downloaded paper: =library-find-newest-downloaded-pdf=
 After I've downloaded a paper, the first thing I want to do is open it in Emacs (using [[https://github.com/vedang/pdf-tools][pdf-tools]]).  I do this by running the command
-=library-find-newest-downloaded-pdf=, which -- surprise, surprise -- searches through my downloads folder for the newest PDF file, and opens that.
+=library-find-newest-downloaded-pdf=, which, unsurprisingly, searches through my downloads folder and opens the newest PDF file that it finds.
 
 ** Processing papers downloaded from the arXiv: =library-process-arxiv=
 If the paper came from the arXiv, then, after opening it in Emacs, I run the command =library-process-arxiv=, which does the following:
