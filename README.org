@@ -13,8 +13,8 @@ After I've downloaded a paper, the first thing I want to do is open it in Emacs 
 ** Processing papers downloaded from the arXiv: =library-process-arxiv=
 If the paper came from the arXiv, then, after opening it in Emacs, I run the command =library-process-arxiv=, which does the following:
 - Download bibliographic data for the paper using the arXiv API.
-- Move the file to a designated PDF storage folder (for me, in Dropbox) and rename it to something intelligible, containing the publication year, authors and title, so that I can later find the paper.
-- Add a BibTeX entry to my "refs.bib", so that I can later cite the paper.
+- Move the file to a designated PDF storage folder (for me, in Dropbox) and rename it to something intelligible, containing the publication year, authors and title, so that, later, I can easily find the paper.
+- Add a BibTeX entry to my "refs.bib", so that, later, I can easily cite the paper.
 - Add a journal entry to my "log.org" with a link to my downloaded copy of the paper, so that I can keep track of when I looked at which papers.  I also often use this as a place to store paper-specific notes-to-self (typically in an [[https://orgmode.org/worg/org-contrib/babel/languages/ob-doc-LaTeX.html][org-mode LaTeX source block]]).  
 
   Note: for papers using old arXiv identifiers, this command assumes that they came from "math".  For non-math papers, see below.
