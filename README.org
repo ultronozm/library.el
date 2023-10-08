@@ -2,7 +2,7 @@
 #+author: Paul Nelson
 
 * Overview
-This package provides commands for managing downloaded papers and their associated BibTeX.  It is much simpler than the many existing packages addressing this general need, such as [[https://github.com/cpitclaudel/biblio.el][biblio.el]] and [[https://github.com/emacsmirror/zotero][emacs-zotero]], but I wasn't able to get those to do exactly what I wanted.
+This package provides commands for managing downloaded papers and their associated BibTeX.  It is simpler and less featureful than the many existing packages addressing this general need, such as [[https://github.com/cpitclaudel/biblio.el][biblio.el]] and [[https://github.com/emacsmirror/zotero][emacs-zotero]], but I wasn't able to get those to do exactly what I wanted.
 
 The most common ways that I use this package are as follows:
 
