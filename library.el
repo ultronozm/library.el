@@ -86,31 +86,33 @@ If nil, then no journal entry is created."
 Uses publication year, author last names, and title."
   (bibtex-beginning-of-entry)
   (when-let* ((entry (bibtex-parse-entry))
-	      (year (bibtex-text-in-field "year" entry))
-	      (author (czm-tex-util-remove-braces-accents (bibtex-text-in-field "author" entry)))
-	      (title (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
+	             (year (bibtex-text-in-field "year" entry))
+	             (author (czm-tex-util-remove-braces-accents
+                       (or (bibtex-text-in-field "author" entry)
+                           (bibtex-text-in-field "editor" entry))))
+	             (title (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
     (let* (
-           ; this concatenates first and last names when using arxiv
-           ; API bibtex entries.  could optimize it to just use last
-           ; names, but this is fine for now.
-	   (lastnames
-	    (mapconcat
-	     'identity
-	     (mapcar
-	      (lambda (x)
-		(downcase
-		 (replace-regexp-in-string "[^a-zA-Z]" ""
-					   (car (split-string x ", ")))))
-	      (split-string author "[[:space:]]*\\(and\\|,\\)[[:space:]]*"))
-	     "_"))
-	   (clean-title
-	    (replace-regexp-in-string
-	     "-[-]+" "-"
-	     (replace-regexp-in-string
-	      "[^a-zA-Z0-9-]" ""
-	      (replace-regexp-in-string
-	       " +" "-"
-	       title)))))
+                                        ; this concatenates first and last names when using arxiv
+                                        ; API bibtex entries.  could optimize it to just use last
+                                        ; names, but this is fine for now.
+	          (lastnames
+	           (mapconcat
+	            'identity
+	            (mapcar
+	             (lambda (x)
+		              (downcase
+		               (replace-regexp-in-string "[^a-zA-Z]" ""
+					                                      (car (split-string x ", ")))))
+	             (split-string author "[[:space:]]*\\(and\\|,\\)[[:space:]]*"))
+	            "_"))
+	          (clean-title
+	           (replace-regexp-in-string
+	            "-[-]+" "-"
+	            (replace-regexp-in-string
+	             "[^a-zA-Z0-9-]" ""
+	             (replace-regexp-in-string
+	              " +" "-"
+	              title)))))
       (concat year "_" lastnames "--" clean-title))))
 
 (defun library--deposit-bibtex-return-filename (bibtex)
