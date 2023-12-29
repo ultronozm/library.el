@@ -50,6 +50,11 @@
   :type 'string
   :group 'library)
 
+(defcustom library-local-pdf-link-name "Dropbox link"
+  "Name of link to local PDF file in Org journal file."
+  :type 'string
+  :group 'library)
+
 (defcustom library-bibtex-file "~/doit/refs.bib"
   "BibTeX file where references are stored."
   :type 'string
@@ -174,7 +179,7 @@ Optionally, make use of specified ARXIV-ID."
        (format ":TITLE: %s\n" title)
        ":END:\n"
        "\n"
-       (format "[[%s][Dropbox link]]\n\n" file)
+       (format (concat "[[%s][" library-local-pdf-link-name "]]\n\n") file)
        (when arxiv-id
 	 (format "[[https://arxiv.org/abs/%s][arXiv link]]\n\n" arxiv-id))))))
 
