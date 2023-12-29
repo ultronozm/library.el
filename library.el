@@ -80,8 +80,8 @@ If nil, then no journal entry is created."
          (pdf-files (directory-files downloads-dir t "\\.pdf$"))
          (pdf-files-sorted (sort pdf-files
                                  (lambda (a b)
-                                  (time-less-p (nth 5 (file-attributes b))
-                                               (nth 5 (file-attributes a)))))))
+                                   (time-less-p (nth 5 (file-attributes b))
+                                                (nth 5 (file-attributes a)))))))
     (if pdf-files
         (find-file (car pdf-files-sorted))
       (message "No PDF files found in download directory."))))
@@ -125,19 +125,19 @@ Uses publication year, author last names, and title."
   (save-window-excursion
     (let ((name))
       (with-temp-buffer
-	(insert bibtex)
+	       (insert bibtex)
         (goto-char (point-min))
-	(search-forward-regexp "{\\([^,]+\\)")
-	(setq name (match-string 1))
-	(if (not name)
-	    (error "Invalid bib entry")))
+	       (search-forward-regexp "{\\([^,]+\\)")
+	       (setq name (match-string 1))
+	       (if (not name)
+	           (error "Invalid bib entry")))
       (find-file library-bibtex-file)
       (goto-char (point-min))
       (unless (search-forward name (point-max) t)
         (goto-char (point-max))
-	(newline-and-indent)
-	(insert bibtex)
-	(save-buffer))
+	       (newline-and-indent)
+	       (insert bibtex)
+	       (save-buffer))
       (library--filename-from-bibtex))))
 
 (defun library--process-pdf-bibtex (file bibtex)
@@ -146,8 +146,8 @@ First, deposit BIBTEX into references file.  Then, move PDF file
 to PDF directory, and rename it according to the BIBTEX entry."
   (interactive)
   (when-let* ((new-name (library--deposit-bibtex-return-filename bibtex))
-	      (new-dir library-pdf-directory)
-	      (new-path (concat new-dir new-name ".pdf")))
+	             (new-dir library-pdf-directory)
+	             (new-path (concat new-dir new-name ".pdf")))
     (dired-rename-file file new-path t)
     (message "PDF file moved and renamed successfully.")
     new-path))
@@ -157,23 +157,23 @@ to PDF directory, and rename it according to the BIBTEX entry."
 Optionally, make use of specified ARXIV-ID."
   (with-temp-buffer
     (let* ((entry
-	    (progn
-	      (insert bibtex)
-	      (bibtex-beginning-of-entry)
-	      (bibtex-parse-entry)))
-	   (author (czm-tex-util-remove-braces-accents (bibtex-text-in-field "author" entry)))
-	   (title
-	    (string-clean-whitespace
-	     (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
-	   (year (bibtex-text-in-field "year" entry)))
+	           (progn
+	             (insert bibtex)
+	             (bibtex-beginning-of-entry)
+	             (bibtex-parse-entry)))
+	          (author (czm-tex-util-remove-braces-accents (bibtex-text-in-field "author" entry)))
+	          (title
+	           (string-clean-whitespace
+	            (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
+	          (year (bibtex-text-in-field "year" entry)))
       (concat
        title
        (when arxiv-id
-	 (format " (arXiv:%s)  :arxiv" arxiv-id))
+	        (format " (arXiv:%s)  :arxiv" arxiv-id))
        "\n"
        ":PROPERTIES:\n"
        (when arxiv-id
-	 (format ":ARXIV_ID: %s\n" arxiv-id))
+	        (format ":ARXIV_ID: %s\n" arxiv-id))
        (format ":YEAR: %s\n" year)
        (format ":AUTHORS: %s\n" author)
        (format ":TITLE: %s\n" title)
@@ -181,16 +181,17 @@ Optionally, make use of specified ARXIV-ID."
        "\n"
        (format (concat "[[%s][" library-local-pdf-link-name "]]\n\n") file)
        (when arxiv-id
-	 (format "[[https://arxiv.org/abs/%s][arXiv link]]\n\n" arxiv-id))))))
+	        (format "[[https://arxiv.org/abs/%s][arXiv link]]\n\n" arxiv-id))))))
 
 (defun library--process-pdf-bibtex-with-log (file bibtex &optional arxiv-id)
   "Process pdf FILE with associated BIBTEX and optional ARXIV-ID.
 First, deposit BIBTEX into references file.  Then, move PDF file
 to PDF directory, and rename it according to the BIBTEX entry.
-Finally, create a journal entry."
+Finally, create a journal entry.  Returns the new path of the PDF."
   (when-let ((newpath
-		(library--process-pdf-bibtex file bibtex)))
-      (library--capture-journal-entry (library--generate-log-entry arxiv-id bibtex newpath))))
+		            (library--process-pdf-bibtex file bibtex)))
+    (library--capture-journal-entry (library--generate-log-entry arxiv-id bibtex newpath))
+    newpath))
 
 ;;;###autoload
 (defun library-process-clipboard ()
@@ -203,10 +204,10 @@ reference."
   (let* ((file-name (if (derived-mode-p 'dired-mode)
                         (dired-get-filename)
                       (buffer-file-name)))
-	 (bibtex-entry
-	  (with-temp-buffer
-	    (clipboard-yank)
-	    (buffer-substring-no-properties (point-min) (point-max)))))
+	        (bibtex-entry
+	         (with-temp-buffer
+	           (clipboard-yank)
+	           (buffer-substring-no-properties (point-min) (point-max)))))
     (library--process-pdf-bibtex-with-log file-name bibtex-entry)))
 
 (defun library--bibtex-from-arxiv-id (arxiv-id)
@@ -262,20 +263,20 @@ reference."
 (defun library--bibtex-from-arxiv-id-nasa-ads (arxiv-id)
   "Retrieve bibtex entry for ARXIV-ID using NASA ADS."
   (let* ((url
-	  ;;  if arxiv-id contains a dot:
-	  (if (string-match "\\." arxiv-id)
-	      (format "https://ui.adsabs.harvard.edu/abs/arXiv:%s/exportcitation" arxiv-id)
-	    (format "https://ui.adsabs.harvard.edu/abs/arXiv:math%s/exportcitation" (concat "%2F" arxiv-id))))
+	         ;;  if arxiv-id contains a dot:
+	         (if (string-match "\\." arxiv-id)
+	             (format "https://ui.adsabs.harvard.edu/abs/arXiv:%s/exportcitation" arxiv-id)
+	           (format "https://ui.adsabs.harvard.edu/abs/arXiv:math%s/exportcitation" (concat "%2F" arxiv-id))))
          (response-buffer (url-retrieve-synchronously url)))
     (with-current-buffer response-buffer
       (if (not (re-search-forward "<textarea class=\"export-textarea form-control\"" nil t))
           nil
-	(let ((start (match-beginning 0)))
-	  (if (not (re-search-forward "</textarea>" nil t))
-	      nil
-	    (let* ((end (match-end 0)))
-	      (caddr
-	       (libxml-parse-xml-region start end)))))))))
+	       (let ((start (match-beginning 0)))
+	         (if (not (re-search-forward "</textarea>" nil t))
+	             nil
+	           (let* ((end (match-end 0)))
+	             (caddr
+	              (libxml-parse-xml-region start end)))))))))
 
 (defun library--capture-journal-entry (text)
   "Capture TEXT as a journal entry.
@@ -293,14 +294,14 @@ If FILENAME is not specified, then use current buffer or Dired
 file.  First, retrieve bibtex entry from arxiv API.  Then, deposit
 BIBTEX into references file.  Then, move PDF file to PDF
 directory, and rename it according to the BIBTEX entry.  Finally,
-create a journal entry."
+create a journal entry.  Returns the new path of the PDF file."
   (interactive)
   (unless filename
     (if (derived-mode-p 'dired-mode)
-	(setq filename (dired-get-filename))
+	       (setq filename (dired-get-filename))
       (setq filename (buffer-file-name))))
   (when-let* ((arxiv-id (file-name-base filename))
-	      (bibtex-entry (library--bibtex-from-arxiv-id arxiv-id)))
+	             (bibtex-entry (library--bibtex-from-arxiv-id arxiv-id)))
     (library--process-pdf-bibtex-with-log filename bibtex-entry arxiv-id)))
 
 ;;;###autoload
@@ -308,10 +309,10 @@ create a journal entry."
   "Process arxiv file with manual arxiv id."
   (interactive)
   (let ((filename
-	 (if (derived-mode-p 'dired-mode)
-	     (dired-get-filename)
-	   (buffer-file-name)))
-	(arxiv-id (read-string "arxiv id: ")))
+	        (if (derived-mode-p 'dired-mode)
+	            (dired-get-filename)
+	          (buffer-file-name)))
+	       (arxiv-id (read-string "arxiv id: ")))
     (when-let ((bibtex-entry (library--bibtex-from-arxiv-id arxiv-id)))
       (library--process-pdf-bibtex-with-log filename bibtex-entry arxiv-id))))
 
@@ -322,7 +323,7 @@ create a journal entry."
   ;; if no marked files, then deal with current file
   (if-let ((marked-files (dired-get-marked-files)))
       (dolist (file marked-files)
-	(library-process-arxiv file))
+	       (library-process-arxiv file))
     (library-process-arxiv)))
 
 ;;;###autoload
@@ -332,16 +333,16 @@ create a journal entry."
   (save-window-excursion
     (let ((name))
       (with-temp-buffer
-	(clipboard-yank)
-	(goto-char (point-min))
-	(search-forward-regexp "{\\([^,]+\\)")
-	(setq name (match-string 1))
-	(if (not name)
-	    (error "Invalid bib entry in clipboard")))
+	       (clipboard-yank)
+	       (goto-char (point-min))
+	       (search-forward-regexp "{\\([^,]+\\)")
+	       (setq name (match-string 1))
+	       (if (not name)
+	           (error "Invalid bib entry in clipboard")))
       (find-file library-bibtex-file)
       (goto-char (point-min))
       (if (search-forward name (point-max) t)
-	  (error "Bib entry already exists"))
+	         (error "Bib entry already exists"))
       (goto-char (point-max))
       (newline-and-indent)
       (clipboard-yank)
@@ -358,6 +359,19 @@ create a journal entry."
       (rename-file (buffer-file-name) new-path)
       (find-alternate-file new-path)
       (message "PDF file moved and renamed successfully."))))
+
+;;;###autoload
+(defun library-download-arxiv (id)
+  "Download, process and visit PDF with given arXiv ID."
+  (interactive "sarXiv ID: ")
+  (let* ((url (format "https://arxiv.org/pdf/%s.pdf" id))
+         (outfile (expand-file-name
+                   (format "%s.pdf" id) library-download-directory)))
+    (url-copy-file url outfile)
+    (if (file-exists-p outfile)
+        (when-let (newfile (library-process-arxiv outfile))
+          (find-file newfile))
+      (message "File not found."))))
 
 (provide 'library)
 ;;; library.el ends here
