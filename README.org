@@ -43,6 +43,8 @@ Download this repository, install using =M-x package-install-file= (or package-v
 
 Modify suitably, replacing the paths above with paths to your own PDF storage directory, BibTeX file, download directory, and log file.
 
+You can customize the file-naming scheme by modifying the user option =library-generate-filename-function=, e.g., by adding under the custom heading =:custom= above the entry =library-generate-filename-function my-filename-function= and writing your own function =(defun my-filename-function (entry year author title) ...)=, perhaps by copying the source code of the built-in default =library--generate-filename= and modifying it to your liking.
+
 * Usage
 The three commands that I use most often were described already in [[Overview]].  The following supplementary commands are occasionally useful:
 - =library-download-arxiv= :: This command prompts for an arXiv identifier and downloads, processes and visits the corresponding PDF.
