@@ -100,25 +100,27 @@ default is the built-in function `library--generate-filename'."
                                         ; this concatenates first and last names when using arxiv
                                         ; API bibtex entries.  could optimize it to just use last
                                         ; names, but this is fine for now.
-          (lastnames
-           (mapconcat
-            'identity
-            (mapcar
-             (lambda (x)
-		      (downcase
-		       (replace-regexp-in-string "[^a-zA-Z]" ""
-					                                      (car (split-string x ", ")))))
-             (split-string author "[[:space:]]*\\(and\\|,\\)[[:space:]]*"))
-            "_"))
-          (clean-title
+         (lastnames
+          (mapconcat
+           'identity
+           (mapcar
+            (lambda (x)
+		            (downcase
+		             (replace-regexp-in-string "[^a-zA-Z]" ""
+					                                    (car (split-string x ", ")))))
+            (split-string author (rx (seq (zero-or-more space)
+                                          word-boundary (group (or "and" ","))
+                                          word-boundary (zero-or-more space)))))
+           "_"))
+         (clean-title
+          (replace-regexp-in-string
+           "-[-]+" "-"
            (replace-regexp-in-string
-            "-[-]+" "-"
+            "[^a-zA-Z0-9-]" ""
             (replace-regexp-in-string
-             "[^a-zA-Z0-9-]" ""
-             (replace-regexp-in-string
-              " +" "-"
-              title)))))
-      (concat year "_" lastnames "--" clean-title)))
+             " +" "-"
+             title)))))
+    (concat year "_" lastnames "--" clean-title)))
 
 (defun library--filename-from-bibtex ()
   "Generate filename from current bibtex entry.
