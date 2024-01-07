@@ -387,5 +387,55 @@ create a journal entry.  Returns the new path of the PDF file."
           (find-file newfile))
       (message "File not found."))))
 
+(defun library--rm-trailing-slash (str)
+  "Return string arg 'str' with final '/',
+if it exists, removed."
+  (if (string-suffix-p "/" str)
+      (substring str 0 -1)
+    str))
+
+;;;###autoload
+(defun library-adjust-local-pdf-links (old-pdf-dir-path
+				       is-pdf-dir-path-regex
+				       old-link-name
+				       is-link-name-regex)
+  "Interactively modify local PDF links in a journal
+Org file buffer. Details:
+
+1. If IS-PDF-DIR-PATH-REGEX is nil, then OLD-PDF-DIR-PATH
+must be a string that equals the complete absolute path to
+the old directory containing pdfs excluding the trailing
+slash; if IS-PDF-DIR-PATH-REGEX is t, then OLD-PDF-DIR-PATH
+is a GNU Emacs regular expression matching the
+aforementioned path excluding the trailing slash.
+
+2. The logic for OLD-LINK-NAME and IS-LINK-NAME-REGEX is
+the same as in 1., with OLD-LINK-NAME representing the
+old link descriptions.
+
+3. The path to the old directory containing pdfs will be
+replaced with the current value of `library-pdf-directory'
+and the old link names will be replaced with the current
+value of `library-local-pdf-link-name'."
+  (interactive
+   (let ((x (read-string "Enter old pdf directory absolute path \
+excluding final '/' (exact or regex): "))
+	 (xr (yes-or-no-p "Was that a regex? "))
+         (y (read-string "Enter old link name (exact or regex): "))
+	 (yr (yes-or-no-p "Was that a regex? ")))
+     (list x xr y yr)))
+  (if (not is-pdf-dir-path-regex)
+      (setq old-pdf-dir-path (regexp-quote old-pdf-dir-path)))
+  (if (not is-link-name-regex)
+      (setq old-link-name (regexp-quote old-link-name)))
+  (query-replace-regexp (concat "\\[\\[" old-pdf-dir-path
+				"/\\(.*\\.pdf\\)\\]\\["
+				old-link-name "\\]\\]")
+                        (concat "[["
+				(library--rm-trailing-slash
+				 library-pdf-directory)
+                                "/\\1][" library-local-pdf-link-name
+				"]]")))
+
 (provide 'library)
 ;;; library.el ends here
