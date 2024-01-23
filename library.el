@@ -378,7 +378,11 @@ create a journal entry.  Returns the new path of the PDF file."
 (defun library-download-arxiv (id)
   "Download, process and visit PDF with given arXiv ID."
   (interactive "sarXiv ID: ")
-  (let* ((url (format "https://arxiv.org/pdf/%s.pdf" id))
+  (let* ((url
+          (if (string-match "^https" id)
+              (concat (string-replace "/abs/" "/pdf/" id)
+                      ".pdf")
+            (format "https://arxiv.org/pdf/%s.pdf" id)))
          (outfile (expand-file-name
                    (format "%s.pdf" id) library-download-directory)))
     (url-copy-file url outfile)
