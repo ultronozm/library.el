@@ -106,8 +106,10 @@ default is the built-in function `library--generate-filename'."
            (mapcar
             (lambda (x)
 		            (downcase
-		             (replace-regexp-in-string "[^a-zA-Z]" ""
-					                                    (car (split-string x ", ")))))
+               (replace-regexp-in-string
+                " " "-"
+		              (replace-regexp-in-string "[^a-zA-Z ]" ""
+					                                     (car (split-string x ", "))))))
             (split-string author (rx (seq (zero-or-more space)
                                           word-boundary (group (or "and" ","))
                                           word-boundary (zero-or-more space)))))
@@ -252,12 +254,7 @@ reference."
             (mapconcat
              (lambda (a) (car (xml-node-children (assoc 'name a))))
              (xml-get-children entry 'author)
-             ", "))
-           (categories
-            (mapconcat
-             (lambda (c) (cdr (assoc 'term (xml-node-children c))))
-             (xml-get-children entry 'category)
-             ", "))
+             " and "))
            (summary (replace-regexp-in-string
                      "\\s-+" " "
                      (car (xml-node-children (assoc 'summary entry))))))
@@ -269,10 +266,9 @@ reference."
   month                    = {%s},
   url                      = {%s},
   note                     = {arXiv:%s},
-  categories               = {%s},
   eprinttype               = {arXiv},
   abstract                 = {%s}
-}" year arxiv-id title author year month id arxiv-id categories (substring summary 0 (- (length summary) 1))))))
+}" year arxiv-id title author year month id arxiv-id (substring summary 0 (- (length summary) 1))))))
 
 (defun library--bibtex-from-arxiv-id-nasa-ads (arxiv-id)
   "Retrieve bibtex entry for ARXIV-ID using NASA ADS."
@@ -378,14 +374,12 @@ create a journal entry.  Returns the new path of the PDF file."
 (defun library-download-arxiv (id)
   "Download, process and visit PDF with given arXiv ID."
   (interactive "sarXiv ID: ")
-  (let* ((url
-          (if (string-match "^https" id)
-              (concat (string-replace "/abs/" "/pdf/" id)
-                      ".pdf")
-            (format "https://arxiv.org/pdf/%s.pdf" id)))
+  (when (string-match ".*/" id)
+    (setq id (substring id (match-end 0))))
+  (let* ((url (format "https://arxiv.org/pdf/%s.pdf" id))
          (outfile (expand-file-name
                    (format "%s.pdf" id) library-download-directory)))
-    (url-copy-file url outfile)
+    (url-copy-file url outfile t)
     (if (file-exists-p outfile)
         (when-let (newfile (library-process-arxiv outfile))
           (find-file newfile))
