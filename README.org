@@ -17,11 +17,14 @@ If the paper came from the arXiv, then, after opening it in Emacs, I run the com
 - Add a BibTeX entry to my "refs.bib", so that, later, I can easily cite the paper.
 - Add a journal entry to my "log.org" with a link to my downloaded copy of the paper, so that I can keep track of when I looked at which papers.  I also often use this as a place to store paper-specific notes-to-self (typically in an [[https://orgmode.org/worg/org-contrib/babel/languages/ob-doc-LaTeX.html][org-mode LaTeX source block]]).  
 
-  Note: for papers using old arXiv identifiers, this command assumes that they came from "math".  For non-math papers, see below.
+  Notes:
+
+  1. For papers using old arXiv identifiers, this command assumes that they came from "math".  For non-math papers, see below.
+
+  2. I often compress these two steps into one using =library-download-arxiv=, see below.
 
 ** Processing papers downloaded from other sources: =library-process-clipboard=
 For a paper coming from somewhere other than the arXiv (or an old non-math arXiv paper), I find a BibTeX entry for that paper (typically using [[https://mathscinet.ams.org/mathscinet/publications-search][MathSciNet]]) and copy it to the clipboard.  Then, after opening the paper in Emacs, I run the command =library-process-clipboard=.  This carries out the same steps as above, but using the BibTeX stored in the clipboard rather than that obtained via the arXiv API.
-
 
 * Configuration
 This package requires [[https://github.com/ultronozm/czm-tex-util.el][czm-tex-util.el]], so install that first.
