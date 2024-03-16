@@ -376,6 +376,8 @@ create a journal entry.  Returns the new path of the PDF file."
   (interactive "sarXiv ID: ")
   (when (string-match ".*/" id)
     (setq id (substring id (match-end 0))))
+  (when (string-match "\.pdf$" id)
+    (setq id (substring id 0 -4)))
   (let* ((url (format "https://arxiv.org/pdf/%s.pdf" id))
          (outfile (expand-file-name
                    (format "%s.pdf" id) library-download-directory)))
