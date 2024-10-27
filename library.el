@@ -156,14 +156,17 @@ Uses publication year, author last names, and title."
 	       (save-buffer))
       (library--filename-from-bibtex))))
 
+(defun library--path-of-name (name)
+	 (expand-file-name (file-name-with-extension new-name "pdf")
+                    library-pdf-directory))
+
 (defun library--process-pdf-bibtex (file bibtex)
   "Process pdf FILE with associated BIBTEX.
 First, deposit BIBTEX into references file.  Then, move PDF file
 to PDF directory, and rename it according to the BIBTEX entry."
   (interactive)
   (when-let* ((new-name (library--deposit-bibtex-return-filename bibtex))
-	             (new-dir library-pdf-directory)
-	             (new-path (concat new-dir new-name ".pdf")))
+	             (new-path (library--path-of-name new-name)))
     (dired-rename-file file new-path t)
     (message "PDF file moved and renamed successfully.")
     new-path))
@@ -364,8 +367,7 @@ create a journal entry.  Returns the new path of the PDF file."
   (interactive)
   (when (string= (file-name-extension (buffer-file-name)) "pdf")
     (let* ((new-name (read-string "Enter new name (without .pdf): "))
-           (new-dir library-pdf-directory)
-           (new-path (concat new-dir new-name ".pdf")))
+           (new-path (library--path-of-name new-name)))
       (rename-file (buffer-file-name) new-path)
       (find-alternate-file new-path)
       (message "PDF file moved and renamed successfully."))))
