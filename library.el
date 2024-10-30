@@ -230,6 +230,13 @@ reference."
 	           (buffer-substring-no-properties (point-min) (point-max)))))
     (library--process-pdf-bibtex-with-log file-name bibtex-entry)))
 
+;;;###autoload
+(defun library-process-clipboard-newest-download ()
+  "Process newest downloaded PDF file using BibTeX stored in clipboard."
+  (interactive)
+  (library-find-newest-downloaded-pdf)
+  (library-process-clipboard))
+
 (defun library--bibtex-from-arxiv-id (arxiv-id)
   "Retrieve bibtex entry for ARXIV-ID using arxiv API."
   (interactive "sarxiv id: ")
