@@ -71,7 +71,6 @@ If nil, then no journal entry is created."
   :type 'string
   :group 'library)
 
-
 ;;;###autoload
 (defun library-find-newest-downloaded-pdf ()
   "Find newest PDF file in the download directory."
@@ -97,9 +96,9 @@ default is the built-in function `library--generate-filename'."
 (defun library--generate-filename (_entry year author title)
   "Generate filename from bibtex ENTRY, YEAR, AUTHOR, and TITLE."
   (let* (
-                                        ; this concatenates first and last names when using arxiv
-                                        ; API bibtex entries.  could optimize it to just use last
-                                        ; names, but this is fine for now.
+         ;; this concatenates first and last names when using arxiv
+         ;; API bibtex entries.  could optimize it to just use last
+         ;; names, but this is fine for now.
          (lastnames
           (mapconcat
            'identity
@@ -157,7 +156,9 @@ Uses publication year, author last names, and title."
       (library--filename-from-bibtex))))
 
 (defun library--path-of-name (name)
-	 (expand-file-name (file-name-with-extension new-name "pdf")
+  "Return full path of file NAME in PDF directory.
+NAME is the filename without extension."
+	 (expand-file-name (file-name-with-extension name "pdf")
                     library-pdf-directory))
 
 (defun library--process-pdf-bibtex (file bibtex)
@@ -165,11 +166,11 @@ Uses publication year, author last names, and title."
 First, deposit BIBTEX into references file.  Then, move PDF file
 to PDF directory, and rename it according to the BIBTEX entry."
   (interactive)
-  (when-let* ((new-name (library--deposit-bibtex-return-filename bibtex))
-	             (new-path (library--path-of-name new-name)))
-    (dired-rename-file file new-path t)
+  (when-let* ((name (library--deposit-bibtex-return-filename bibtex))
+	             (path (library--path-of-name name)))
+    (dired-rename-file file path t)
     (message "PDF file moved and renamed successfully.")
-    new-path))
+    path))
 
 (defun library--generate-log-entry (arxiv-id bibtex file)
   "Generate log entry for pdf FILE with associated BIBTEX.
@@ -366,10 +367,10 @@ create a journal entry.  Returns the new path of the PDF file."
   "Move current PDF file to PDF directory, with a new name."
   (interactive)
   (when (string= (file-name-extension (buffer-file-name)) "pdf")
-    (let* ((new-name (read-string "Enter new name (without .pdf): "))
-           (new-path (library--path-of-name new-name)))
-      (rename-file (buffer-file-name) new-path)
-      (find-alternate-file new-path)
+    (let* ((name (read-string "Enter new name (without .pdf): "))
+           (path (library--path-of-name name)))
+      (rename-file (buffer-file-name) path)
+      (find-alternate-file path)
       (message "PDF file moved and renamed successfully."))))
 
 ;;;###autoload
