@@ -382,20 +382,23 @@ create a journal entry.  Returns the new path of the PDF file."
 
 ;;;###autoload
 (defun library-download-arxiv (id)
-  "Download, process and visit PDF with given arXiv ID."
-  (interactive "sarXiv ID: ")
-  (when (string-match ".*/" id)
-    (setq id (substring id (match-end 0))))
-  (when (string-match "\.pdf$" id)
-    (setq id (substring id 0 -4)))
-  (let* ((url (format "https://arxiv.org/pdf/%s.pdf" id))
-         (outfile (expand-file-name
-                   (format "%s.pdf" id) library-download-directory)))
-    (url-copy-file url outfile t)
-    (if (file-exists-p outfile)
-        (when-let (newfile (library-process-arxiv outfile))
-          (find-file newfile))
-      (message "File not found."))))
+  "Download, process and visit PDF with given arXiv ID.
+When called interactively, defaults to URL at point if present."
+  (interactive
+   (list (read-string "arXiv ID: " (thing-at-point 'url))))
+  (save-excursion
+    (when (string-match ".*/" id)
+      (setq id (substring id (match-end 0))))
+    (when (string-match "\\.pdf$" id)
+      (setq id (substring id 0 -4)))
+    (let* ((url (format "https://arxiv.org/pdf/%s.pdf" id))
+           (outfile (expand-file-name
+                     (format "%s.pdf" id) library-download-directory)))
+      (url-copy-file url outfile t)
+      (if (file-exists-p outfile)
+          (when-let (newfile (library-process-arxiv outfile))
+            (find-file newfile))
+        (message "File not found.")))))
 
 (provide 'library)
 ;;; library.el ends here
