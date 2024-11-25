@@ -304,9 +304,10 @@ reference."
 Uses `library-org-capture-template-key' to determine which
 template to use."
   (when library-org-capture-template-key
-    (org-capture nil library-org-capture-template-key)
-    (insert text)
-    (org-capture-finalize)))
+    (let ((org-capture-link-is-already-stored t)) ;; rmail issue
+      (org-capture nil library-org-capture-template-key)
+      (insert text)
+      (org-capture-finalize))))
 
 ;;;###autoload
 (defun library-process-arxiv (&optional filename)
