@@ -95,33 +95,35 @@ default is the built-in function `library--generate-filename'."
 
 (defun library--generate-filename (_entry year author title)
   "Generate filename from bibtex ENTRY, YEAR, AUTHOR, and TITLE."
-  (let* (
-         ;; this concatenates first and last names when using arxiv
-         ;; API bibtex entries.  could optimize it to just use last
-         ;; names, but this is fine for now.
-         (lastnames
-          (mapconcat
-           'identity
-           (mapcar
-            (lambda (x)
-		            (downcase
-               (replace-regexp-in-string
-                " " "-"
-		              (replace-regexp-in-string "[^a-zA-Z ]" ""
-					                                     (car (split-string x ", "))))))
-            (split-string author (rx (seq (zero-or-more space)
-                                          word-boundary (group (or "and" ","))
-                                          word-boundary (zero-or-more space)))))
-           "_"))
+  (let* ((normalized-author
+          (replace-regexp-in-string "\\s-+" " "
+                                    (replace-regexp-in-string "\n" " " author)))
+         (author-list
+          (split-string normalized-author
+                        (rx (seq (zero-or-more space)
+                                 word-boundary (group (or "and" ","))
+                                 word-boundary (zero-or-more space)))))
+         (processed-authors
+          (mapcar (lambda (author-name)
+                    (let ((first-part (car (split-string author-name ", "))))
+                      (downcase
+                       (replace-regexp-in-string
+                        " " "-"
+                        (replace-regexp-in-string
+                         "[^a-zA-Z ]" "" first-part)))))
+                  author-list))
+         (author-string (mapconcat #'identity processed-authors "_"))
+         (normalized-title
+          (replace-regexp-in-string "\\s-+" " " title))
+         (hyphenated-title
+          (replace-regexp-in-string " +" "-" normalized-title))
          (clean-title
           (replace-regexp-in-string
            "-[-]+" "-"
            (replace-regexp-in-string
             "[^a-zA-Z0-9-]" ""
-            (replace-regexp-in-string
-             " +" "-"
-             title)))))
-    (concat year "_" lastnames "--" clean-title)))
+            hyphenated-title))))
+    (concat year "_" author-string "--" clean-title)))
 
 (defun library--filename-from-bibtex ()
   "Generate filename from current bibtex entry.
