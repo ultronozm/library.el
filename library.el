@@ -95,7 +95,9 @@ default is the built-in function `library--generate-filename'."
 
 (defun library--generate-filename (_entry year author title)
   "Generate filename from bibtex ENTRY, YEAR, AUTHOR, and TITLE."
-  (let* ((normalized-author
+  (let* ((author (library--ensure-utf8-encoding author))
+         (title (library--ensure-utf8-encoding title))
+         (normalized-author
           (replace-regexp-in-string "\\s-+" " "
                                     (replace-regexp-in-string "\n" " " author)))
          (author-list
@@ -183,10 +185,14 @@ Optionally, make use of specified ARXIV-ID."
               (insert bibtex)
               (bibtex-beginning-of-entry)
               (bibtex-parse-entry)))
-           (author (czm-tex-util-remove-braces-accents (bibtex-text-in-field "author" entry)))
+           (author (library--ensure-utf8-encoding
+                    (czm-tex-util-remove-braces-accents
+                     (bibtex-text-in-field "author" entry))))
            (title
-            (string-clean-whitespace
-             (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
+            (library--ensure-utf8-encoding
+             (string-clean-whitespace
+              (czm-tex-util-remove-braces-accents
+               (bibtex-text-in-field "title" entry)))))
            (year (bibtex-text-in-field "year" entry)))
       (concat
        title
@@ -239,6 +245,15 @@ reference."
   (library-find-newest-downloaded-pdf)
   (library-process-clipboard))
 
+(defun library--ensure-utf8-encoding (text)
+  "Ensure TEXT is properly encoded as UTF-8.
+Returns the properly decoded string."
+  (if (or (null text) (string-empty-p text))
+      text
+    (decode-coding-string
+     (encode-coding-string text 'utf-8-auto)
+     'utf-8-auto)))
+
 (defun library--bibtex-from-arxiv-id (arxiv-id)
   "Retrieve bibtex entry for ARXIV-ID using arxiv API."
   (interactive "sarxiv id: ")
@@ -260,17 +275,20 @@ reference."
            (published (car (xml-node-children (assoc 'published entry))))
            (year (substring published 0 4))
            (month (substring published 5 7))
-           (title (replace-regexp-in-string
-                   "\\s-+" " "
-                   (car (xml-node-children (assoc 'title entry)))))
+           (title (library--ensure-utf8-encoding
+                   (replace-regexp-in-string
+                    "\\s-+" " "
+                    (car (xml-node-children (assoc 'title entry))))))
            (author
-            (mapconcat
-             (lambda (a) (car (xml-node-children (assoc 'name a))))
-             (xml-get-children entry 'author)
-             " and "))
-           (summary (replace-regexp-in-string
-                     "\\s-+" " "
-                     (car (xml-node-children (assoc 'summary entry))))))
+            (library--ensure-utf8-encoding
+             (mapconcat
+              (lambda (a) (car (xml-node-children (assoc 'name a))))
+              (xml-get-children entry 'author)
+              " and ")))
+           (summary (library--ensure-utf8-encoding
+                     (replace-regexp-in-string
+                      "\\s-+" " "
+                      (car (xml-node-children (assoc 'summary entry)))))))
       (format "
 @article{%sarXiv%s,
   title                    = {%s},
@@ -394,7 +412,8 @@ When called interactively, defaults to URL at point if present."
       (setq id (substring id (match-end 0))))
     (when (string-match "\\.pdf$" id)
       (setq id (substring id 0 -4)))
-    (let* ((url (format "https://arxiv.org/pdf/%s.pdf" id))
+    (let* ((id (library--ensure-utf8-encoding id))
+           (url (format "https://arxiv.org/pdf/%s.pdf" id))
            (outfile (expand-file-name
                      (format "%s.pdf" id) library-download-directory)))
       (url-copy-file url outfile t)
