@@ -93,38 +93,83 @@ default is the built-in function `library--generate-filename'."
   :type 'function
   :group 'library)
 
+(defun library--normalize-author (author)
+  "Normalize AUTHOR string by removing newlines and extra whitespace."
+  (replace-regexp-in-string "\\s-+" " "
+                            (replace-regexp-in-string "\n" " " author)))
+
+(defvar library--char-accent-map
+  '((?á . ?a) (?à . ?a) (?â . ?a) (?ä . ?a) (?ã . ?a) (?å . ?a) (?ā . ?a)
+    (?é . ?e) (?è . ?e) (?ê . ?e) (?ë . ?e) (?ē . ?e) (?ě . ?e)
+    (?í . ?i) (?ì . ?i) (?î . ?i) (?ï . ?i) (?ī . ?i)
+    (?ó . ?o) (?ò . ?o) (?ô . ?o) (?ö . ?o) (?õ . ?o) (?ø . ?o) (?ō . ?o)
+    (?ú . ?u) (?ù . ?u) (?û . ?u) (?ü . ?u) (?ū . ?u)
+    (?ý . ?y) (?ÿ . ?y) (?ȳ . ?y)
+    (?ç . ?c) (?ć . ?c) (?č . ?c)
+    (?ñ . ?n) (?ń . ?n) (?ņ . ?n) (?ň . ?n)
+    (?ş . ?s) (?ś . ?s) (?š . ?s)
+    (?ž . ?z) (?ź . ?z) (?ż . ?z)
+    (?Á . ?A) (?À . ?A) (?Â . ?A) (?Ä . ?A) (?Ã . ?A) (?Å . ?A) (?Ā . ?A)
+    (?É . ?E) (?È . ?E) (?Ê . ?E) (?Ë . ?E) (?Ē . ?E) (?Ě . ?E)
+    (?Í . ?I) (?Ì . ?I) (?Î . ?I) (?Ï . ?I) (?Ī . ?I)
+    (?Ó . ?O) (?Ò . ?O) (?Ô . ?O) (?Ö . ?O) (?Õ . ?O) (?Ø . ?O) (?Ō . ?O)
+    (?Ú . ?U) (?Ù . ?U) (?Û . ?U) (?Ü . ?U) (?Ū . ?U)
+    (?Ý . ?Y) (?Ÿ . ?Y) (?Ȳ . ?Y)
+    (?Ç . ?C) (?Ć . ?C) (?Č . ?C)
+    (?Ñ . ?N) (?Ń . ?N) (?Ņ . ?N) (?Ň . ?N)
+    (?Ş . ?S) (?Ś . ?S) (?Š . ?S)
+    (?Ž . ?Z) (?Ź . ?Z) (?Ż . ?Z))
+  "Mapping of accented characters to their unaccented equivalents.")
+
+(defun library--unaccent-string (str)
+  "Replace accented characters in STR with their unaccented versions."
+  (let ((result ""))
+    (dotimes (i (length str))
+      (let* ((char (aref str i))
+             (unaccented (or (cdr (assoc char library--char-accent-map)) char)))
+        (setq result (concat result (char-to-string unaccented)))))
+    result))
+
+(defun library--process-authors (normalized-author)
+  "Convert NORMALIZED-AUTHOR string to a list of processed author last names."
+  (let ((author-list
+         (split-string normalized-author
+                       (rx (seq (zero-or-more space)
+                                word-boundary (group (or "and" ","))
+                                word-boundary (zero-or-more space))))))
+    (mapcar (lambda (author-name)
+              (let ((first-part (car (split-string author-name ", "))))
+                (downcase
+                 (replace-regexp-in-string
+                  " " "-"
+                  (replace-regexp-in-string
+                   "[^a-zA-Z ]" ""
+                   (library--unaccent-string first-part))))))
+            author-list)))
+
+(defun library--make-author-string (author)
+  "Convert AUTHOR string to a normalized author string for filenames."
+  (let* ((normalized-author (library--normalize-author author))
+         (processed-authors (library--process-authors normalized-author)))
+    (mapconcat #'identity processed-authors "_")))
+
+(defun library--clean-title (title)
+  "Clean TITLE string for use in filenames."
+  (let* ((normalized-title (replace-regexp-in-string "\\s-+" " " title))
+         (hyphenated-title (replace-regexp-in-string " +" "-" normalized-title))
+         (clean-title (replace-regexp-in-string
+                       "-[-]+" "-"
+                       (replace-regexp-in-string
+                        "[^a-zA-Z0-9-]" ""
+                        hyphenated-title))))
+    clean-title))
+
 (defun library--generate-filename (_entry year author title)
   "Generate filename from bibtex ENTRY, YEAR, AUTHOR, and TITLE."
   (let* ((author (library--ensure-utf8-encoding author))
          (title (library--ensure-utf8-encoding title))
-         (normalized-author
-          (replace-regexp-in-string "\\s-+" " "
-                                    (replace-regexp-in-string "\n" " " author)))
-         (author-list
-          (split-string normalized-author
-                        (rx (seq (zero-or-more space)
-                                 word-boundary (group (or "and" ","))
-                                 word-boundary (zero-or-more space)))))
-         (processed-authors
-          (mapcar (lambda (author-name)
-                    (let ((first-part (car (split-string author-name ", "))))
-                      (downcase
-                       (replace-regexp-in-string
-                        " " "-"
-                        (replace-regexp-in-string
-                         "[^a-zA-Z ]" "" first-part)))))
-                  author-list))
-         (author-string (mapconcat #'identity processed-authors "_"))
-         (normalized-title
-          (replace-regexp-in-string "\\s-+" " " title))
-         (hyphenated-title
-          (replace-regexp-in-string " +" "-" normalized-title))
-         (clean-title
-          (replace-regexp-in-string
-           "-[-]+" "-"
-           (replace-regexp-in-string
-            "[^a-zA-Z0-9-]" ""
-            hyphenated-title))))
+         (author-string (library--make-author-string author))
+         (clean-title (library--clean-title title)))
     (concat year "_" author-string "--" clean-title)))
 
 (defun library--filename-from-bibtex ()
