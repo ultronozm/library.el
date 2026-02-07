@@ -93,6 +93,61 @@ default is the built-in function `library--generate-filename'."
   :type 'function
   :group 'library)
 
+(defcustom library-filename-max-bytes 255
+  "Maximum number of bytes for the final PDF filename, including extension.
+Most filesystems limit a single path component to 255 bytes.  When a
+generated filename would exceed this limit, `library--generate-filename'
+will shorten it (preferring to shorten the author list first, then the
+title)."
+  :type 'integer
+  :group 'library)
+
+(defcustom library-filename-max-authors 4
+  "Maximum number of authors to include in the filename before using \"et-al\".
+This only takes effect when the full generated filename would exceed
+`library-filename-max-bytes'."
+  :type 'integer
+  :group 'library)
+
+(defun library--file-name-bytes (s)
+  "Return the number of bytes S will take as a filename.
+This approximates the filesystem byte limit by encoding using
+`file-name-coding-system' (or UTF-8 when nil)."
+  (length (encode-coding-string (or s "")
+                                (or file-name-coding-system 'utf-8)
+                                t)))
+
+(defun library--truncate-to-bytes (s max-bytes)
+  "Return the longest prefix of S whose encoded size is <= MAX-BYTES."
+  (setq s (or s ""))
+  (cond
+   ((<= max-bytes 0) "")
+   ((<= (library--file-name-bytes s) max-bytes) s)
+   (t
+    ;; Binary search over character length; we measure bytes after encoding.
+    (let ((lo 0)
+          (hi (length s)))
+      (while (< lo hi)
+        (let* ((mid (/ (+ lo hi 1) 2))
+               (sub (substring s 0 mid)))
+          (if (<= (library--file-name-bytes sub) max-bytes)
+              (setq lo mid)
+            (setq hi (1- mid)))))
+      (substring s 0 lo)))))
+
+(defun library--truncate-to-bytes-with-suffix (s max-bytes suffix)
+  "Truncate S to fit within MAX-BYTES, appending SUFFIX when truncation occurs."
+  (setq s (or s ""))
+  (setq suffix (or suffix ""))
+  (if (<= (library--file-name-bytes s) max-bytes)
+      s
+    ;; Ensure the returned string never exceeds MAX-BYTES by truncating
+    ;; SUFFIX first, then truncating S to the remaining budget.
+    (let* ((suffix (library--truncate-to-bytes suffix max-bytes))
+           (suffix-bytes (library--file-name-bytes suffix))
+           (avail (max 0 (- max-bytes suffix-bytes))))
+      (concat (library--truncate-to-bytes s avail) suffix))))
+
 (defun library--normalize-author (author)
   "Normalize AUTHOR string by removing newlines and extra whitespace."
   (replace-regexp-in-string "\\s-+" " "
@@ -164,13 +219,74 @@ default is the built-in function `library--generate-filename'."
                         hyphenated-title))))
     clean-title))
 
+(defun library--bounded-pdf-basename (year processed-authors clean-title)
+  "Build a PDF base filename, shortening it if needed to respect byte limits.
+
+YEAR is a string.  PROCESSED-AUTHORS is a list of author last names as
+strings (already cleaned for filenames).  CLEAN-TITLE is a cleaned title
+string (already cleaned for filenames)."
+  (let* ((ext-bytes (library--file-name-bytes ".pdf"))
+         (min-bytes (+ ext-bytes 1)))
+    (when (< library-filename-max-bytes min-bytes)
+      (user-error "library-filename-max-bytes (%d) must be >= %d"
+                  library-filename-max-bytes min-bytes))
+    (let* ((max-base-bytes (- library-filename-max-bytes ext-bytes))
+         (authors processed-authors)
+         (author-string (mapconcat #'identity authors "_"))
+         (title clean-title)
+         (build (lambda ()
+                  (if (and title (not (string-empty-p title)))
+                      (concat year "_" author-string "--" title)
+                    (concat year "_" author-string)))))
+      (let ((name (funcall build)))
+        (when (> (library--file-name-bytes name) max-base-bytes)
+          ;; First try to shorten the author list to N + et-al.
+          (when (and (integerp library-filename-max-authors)
+                     (> library-filename-max-authors 0)
+                     (> (length authors) library-filename-max-authors))
+            (setq authors (append (seq-take authors library-filename-max-authors)
+                                  (list "et-al")))
+            (setq author-string (mapconcat #'identity authors "_"))
+            (setq name (funcall build)))
+          ;; If still too long, truncate the title to fit, with a suffix.
+          (when (> (library--file-name-bytes name) max-base-bytes)
+            (let* ((prefix (concat year "_" author-string "--"))
+                   (avail (- max-base-bytes (library--file-name-bytes prefix))))
+              (setq title (if (<= avail 0)
+                              ""
+                            (library--truncate-to-bytes-with-suffix
+                             title avail "-etc")))
+              (when (string-empty-p title)
+                (setq title nil))
+              (setq name (funcall build))))
+          ;; Last resort: truncate the author string itself (keeping YEAR).
+          (when (> (library--file-name-bytes name) max-base-bytes)
+            (let* ((prefix (concat year "_"))
+                   (title-part (if (and title (not (string-empty-p title)))
+                                   (concat "--" title)
+                                 ""))
+                   (avail (- max-base-bytes (library--file-name-bytes
+                                             (concat prefix title-part)))))
+              (when (< avail 1)
+                (setq title nil)
+                (setq title-part "")
+                (setq avail (- max-base-bytes (library--file-name-bytes prefix))))
+              (setq author-string
+                    (library--truncate-to-bytes-with-suffix author-string avail "_etc"))
+              (setq name (funcall build))))
+          ;; Absolute last resort: hard truncate the whole base name.
+          (when (> (library--file-name-bytes name) max-base-bytes)
+            (setq name (library--truncate-to-bytes name max-base-bytes))))
+        name))))
+
 (defun library--generate-filename (_entry year author title)
   "Generate filename from bibtex ENTRY, YEAR, AUTHOR, and TITLE."
   (let* ((author (library--ensure-utf8-encoding author))
          (title (library--ensure-utf8-encoding title))
-         (author-string (library--make-author-string author))
+         (normalized-author (library--normalize-author author))
+         (processed-authors (library--process-authors normalized-author))
          (clean-title (library--clean-title title)))
-    (concat year "_" author-string "--" clean-title)))
+    (library--bounded-pdf-basename year processed-authors clean-title)))
 
 (defun library--filename-from-bibtex ()
   "Generate filename from current bibtex entry.
