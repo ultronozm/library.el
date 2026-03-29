@@ -415,42 +415,71 @@ Returns the properly decoded string."
      (encode-coding-string text 'utf-8-auto)
      'utf-8-auto)))
 
-(defun library--bibtex-from-arxiv-id (arxiv-id)
-  "Retrieve bibtex entry for ARXIV-ID using arxiv API."
-  (interactive "sarxiv id: ")
+(defun library--xml-child-text (node child)
+  "Return CHILD text from XML NODE, or nil when CHILD is absent."
+  (when-let ((child-node (car (xml-get-children node child))))
+    (mapconcat (lambda (part)
+                 (if (stringp part) part ""))
+               (xml-node-children child-node)
+               "")))
 
-  (unless (string-match "\\.\\|/" arxiv-id)
-    (setq arxiv-id (concat "math/" arxiv-id)))
+(defun library--url-response-body (buffer)
+  "Return response body from URL BUFFER as a string."
+  (with-current-buffer buffer
+    (buffer-substring-no-properties url-http-end-of-headers (point-max))))
 
-  (defvar url-http-end-of-headers) ; to silence byte-compiler
-  (let* ((url-request-method "GET")
-         (url-request-extra-headers nil)
-         (url-mime-accept-string "application/atom+xml")
-         (url (format "http://export.arxiv.org/api/query?id_list=%s" arxiv-id))
-         (buffer (url-retrieve-synchronously url))
-         (xml (with-current-buffer buffer (xml-parse-region url-http-end-of-headers (point-max)))))
-    (kill-buffer buffer)
+(defun library--arxiv-id-with-legacy-prefix (arxiv-id)
+  "Return ARXIV-ID, adding the legacy \"math/\" prefix when needed."
+  (if (string-match-p "\\.\\|/" arxiv-id)
+      arxiv-id
+    (concat "math/" arxiv-id)))
 
-    (let* ((entry (car (xml-get-children (car xml) 'entry)))
-           (id (car (xml-node-children (assoc 'id entry))))
-           (published (car (xml-node-children (assoc 'published entry))))
-           (year (substring published 0 4))
-           (month (substring published 5 7))
-           (title (library--ensure-utf8-encoding
-                   (replace-regexp-in-string
-                    "\\s-+" " "
-                    (car (xml-node-children (assoc 'title entry))))))
-           (author
-            (library--ensure-utf8-encoding
-             (mapconcat
-              (lambda (a) (car (xml-node-children (assoc 'name a))))
-              (xml-get-children entry 'author)
-              " and ")))
-           (summary (library--ensure-utf8-encoding
-                     (replace-regexp-in-string
-                      "\\s-+" " "
-                      (car (xml-node-children (assoc 'summary entry)))))))
-      (format "
+(defun library--arxiv-query-url (arxiv-id)
+  "Return arXiv API query URL for ARXIV-ID."
+  (format "http://export.arxiv.org/api/query?id_list=%s"
+          (library--arxiv-id-with-legacy-prefix arxiv-id)))
+
+(defun library--arxiv-response-entry (buffer)
+  "Return the Atom entry parsed from arXiv API response BUFFER, or nil."
+  (let ((body (string-trim (library--url-response-body buffer))))
+    (unless (string-prefix-p "Rate exceeded" body)
+      (car (xml-get-children
+            (car (with-current-buffer buffer
+                   (xml-parse-region url-http-end-of-headers (point-max))))
+            'entry)))))
+
+(defun library--arxiv-response-rate-limited-p (buffer)
+  "Return non-nil when arXiv API response BUFFER indicates rate limiting."
+  (string-prefix-p "Rate exceeded"
+                   (string-trim (library--url-response-body buffer))))
+
+(defun library--clean-arxiv-field (text)
+  "Normalize whitespace and encoding for arXiv metadata TEXT."
+  (library--ensure-utf8-encoding
+   (string-clean-whitespace (or text ""))))
+
+(defun library--arxiv-entry-bibtex (entry arxiv-id)
+  "Build a BibTeX entry from arXiv Atom ENTRY for ARXIV-ID."
+  (let* ((id (or (library--xml-child-text entry 'id)
+                 (format "https://arxiv.org/abs/%s" arxiv-id)))
+         (published (or (library--xml-child-text entry 'published) ""))
+         (year (if (>= (length published) 4)
+                   (substring published 0 4)
+                 ""))
+         (month (if (>= (length published) 7)
+                    (substring published 5 7)
+                  ""))
+         (title (library--clean-arxiv-field
+                 (library--xml-child-text entry 'title)))
+         (author (library--ensure-utf8-encoding
+                  (mapconcat
+                   (lambda (a)
+                     (or (library--xml-child-text a 'name) ""))
+                   (xml-get-children entry 'author)
+                   " and ")))
+         (summary (library--clean-arxiv-field
+                   (library--xml-child-text entry 'summary))))
+    (format "
 @article{%sarXiv%s,
   title                    = {%s},
   author                   = {%s},
@@ -460,7 +489,36 @@ Returns the properly decoded string."
   note                     = {arXiv:%s},
   eprinttype               = {arXiv},
   abstract                 = {%s}
-}" year arxiv-id title author year month id arxiv-id (substring summary 0 (- (length summary) 1))))))
+}" year arxiv-id title author year month id arxiv-id
+       (string-trim-right summary))))
+
+(defun library--signal-arxiv-fetch-error (arxiv-id rate-limited-p)
+  "Signal an appropriate metadata lookup error for ARXIV-ID.
+RATE-LIMITED-P should be non-nil when the arXiv API reported throttling."
+  (if rate-limited-p
+      (user-error "arXiv API rate limit exceeded for %s" arxiv-id)
+    (user-error "No arXiv entry found for %s" arxiv-id)))
+
+(defun library--bibtex-from-arxiv-id (arxiv-id)
+  "Retrieve bibtex entry for ARXIV-ID using arxiv API."
+  (interactive "sarxiv id: ")
+
+  (defvar url-http-end-of-headers) ; to silence byte-compiler
+  (let* ((url-request-method "GET")
+         (url-request-extra-headers nil)
+         (url-mime-accept-string "application/atom+xml")
+         (url (library--arxiv-query-url arxiv-id))
+         (buffer (url-retrieve-synchronously url)))
+    (unless buffer
+      (user-error "Unable to retrieve arXiv metadata for %s" arxiv-id))
+    (unwind-protect
+        (let ((entry (library--arxiv-response-entry buffer))
+              (rate-limited-p (library--arxiv-response-rate-limited-p buffer)))
+          (if-let* ((entry entry))
+              (library--arxiv-entry-bibtex entry arxiv-id)
+            (or (library--bibtex-from-arxiv-id-nasa-ads arxiv-id)
+                (library--signal-arxiv-fetch-error arxiv-id rate-limited-p))))
+      (kill-buffer buffer))))
 
 (defun library--bibtex-from-arxiv-id-nasa-ads (arxiv-id)
   "Retrieve bibtex entry for ARXIV-ID using NASA ADS."

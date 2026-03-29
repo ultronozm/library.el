@@ -24,6 +24,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'ert)
 
 (unless (featurep 'czm-tex-util)
@@ -65,6 +66,61 @@
     (should-error
      (library--bounded-pdf-basename "2026" '("alpha") "title")
      :type 'user-error)))
+
+(ert-deftest library--bibtex-from-arxiv-id-allows-missing-summary ()
+  (let ((xml-response
+         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<feed xmlns=\"http://www.w3.org/2005/Atom\">
+  <entry>
+    <id>https://arxiv.org/abs/2402.00354v1</id>
+    <published>2024-02-01T00:00:00Z</published>
+    <title> Sample Title </title>
+    <author><name>Jane Doe</name></author>
+    <author><name>John Roe</name></author>
+  </entry>
+</feed>"))
+    (cl-letf (((symbol-function 'url-retrieve-synchronously)
+               (lambda (_url)
+                 (with-current-buffer (generate-new-buffer " *library-arxiv-test*")
+                   (insert "HTTP/1.1 200 OK\r\n\r\n")
+                   (setq url-http-end-of-headers (point))
+                   (insert xml-response)
+                   (current-buffer)))))
+      (let ((bibtex (library--bibtex-from-arxiv-id "2402.00354")))
+        (should (string-match-p "title[[:space:]]*=[[:space:]]*{Sample Title}" bibtex))
+        (should (string-match-p "author[[:space:]]*=[[:space:]]*{Jane Doe and John Roe}" bibtex))
+        (should (string-match-p "abstract[[:space:]]*=[[:space:]]*{}" bibtex))))))
+
+(ert-deftest library--bibtex-from-arxiv-id-errors-without-entry ()
+  (let ((xml-response
+         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<feed xmlns=\"http://www.w3.org/2005/Atom\">
+</feed>"))
+    (cl-letf (((symbol-function 'url-retrieve-synchronously)
+               (lambda (_url)
+                 (with-current-buffer (generate-new-buffer " *library-arxiv-test*")
+                   (insert "HTTP/1.1 200 OK\r\n\r\n")
+                   (setq url-http-end-of-headers (point))
+                   (insert xml-response)
+                   (current-buffer))))
+              ((symbol-function 'library--bibtex-from-arxiv-id-nasa-ads)
+               (lambda (_arxiv-id) nil)))
+      (should-error
+       (library--bibtex-from-arxiv-id "2402.00354")
+       :type 'user-error))))
+
+(ert-deftest library--bibtex-from-arxiv-id-falls-back-on-rate-limit ()
+  (cl-letf (((symbol-function 'url-retrieve-synchronously)
+             (lambda (_url)
+               (with-current-buffer (generate-new-buffer " *library-arxiv-test*")
+                 (insert "HTTP/1.1 200 OK\r\n\r\n")
+                 (setq url-http-end-of-headers (point))
+                 (insert "Rate exceeded.")
+                 (current-buffer))))
+            ((symbol-function 'library--bibtex-from-arxiv-id-nasa-ads)
+             (lambda (_arxiv-id) "@ARTICLE{fallback}")))
+    (should (equal (library--bibtex-from-arxiv-id "2402.00354")
+                   "@ARTICLE{fallback}"))))
 
 (provide 'library-tests)
 ;;; library-tests.el ends here
