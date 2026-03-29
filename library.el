@@ -377,8 +377,8 @@ Optionally, make use of specified ARXIV-ID."
 First, deposit BIBTEX into references file.  Then, move PDF file
 to PDF directory, and rename it according to the BIBTEX entry.
 Finally, create a journal entry.  Returns the new path of the PDF."
-  (when-let ((newpath
-              (library--process-pdf-bibtex file bibtex)))
+  (when-let* ((newpath
+               (library--process-pdf-bibtex file bibtex)))
     (library--capture-journal-entry (library--generate-log-entry arxiv-id bibtex newpath))
     newpath))
 
@@ -417,7 +417,7 @@ Returns the properly decoded string."
 
 (defun library--xml-child-text (node child)
   "Return CHILD text from XML NODE, or nil when CHILD is absent."
-  (when-let ((child-node (car (xml-get-children node child))))
+  (when-let* ((child-node (car (xml-get-children node child))))
     (mapconcat (lambda (part)
                  (if (stringp part) part ""))
                (xml-node-children child-node)
@@ -574,7 +574,7 @@ create a journal entry.  Returns the new path of the PDF file."
              (dired-get-filename)
            (buffer-file-name)))
         (arxiv-id (read-string "arxiv id: ")))
-    (when-let ((bibtex-entry (library--bibtex-from-arxiv-id arxiv-id)))
+    (when-let* ((bibtex-entry (library--bibtex-from-arxiv-id arxiv-id)))
       (library--process-pdf-bibtex-with-log filename bibtex-entry arxiv-id))))
 
 ;;;###autoload
@@ -582,7 +582,7 @@ create a journal entry.  Returns the new path of the PDF file."
   "Process arxiv files marked in Dired."
   (interactive)
   ;; if no marked files, then deal with current file
-  (if-let ((marked-files (dired-get-marked-files)))
+  (if-let* ((marked-files (dired-get-marked-files)))
       (dolist (file marked-files)
         (library-process-arxiv file))
     (library-process-arxiv)))
@@ -637,7 +637,7 @@ When called interactively, defaults to URL at point if present."
                      (format "%s.pdf" id) library-download-directory)))
       (url-copy-file url outfile t)
       (if (file-exists-p outfile)
-          (when-let (newfile (library-process-arxiv outfile))
+          (when-let* ((newfile (library-process-arxiv outfile)))
             (find-file newfile))
         (message "File not found.")))))
 
