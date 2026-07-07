@@ -45,6 +45,9 @@
 (require 'url)
 (require 'xml)
 
+(defvar url-http-end-of-headers)
+(defvar url-http-response-status)
+
 (defcustom library-pdf-directory "~/Dropbox/math documents/unsorted/"
   "Directory where PDFs are stored."
   :type 'string
@@ -63,6 +66,18 @@
 (defcustom library-download-directory "~/Downloads/"
   "Directory where PDFs are downloaded."
   :type 'string
+  :group 'library)
+
+(defcustom library-arxiv-source-directory "~/Dropbox/math documents/arxiv-sources/"
+  "Directory where arXiv source archives are stored."
+  :type 'string
+  :group 'library)
+
+(defcustom library-arxiv-url-timeout 30
+  "Seconds to wait for arXiv and ADS HTTP requests.
+If nil, wait indefinitely."
+  :type '(choice (const :tag "No timeout" nil)
+                 integer)
   :group 'library)
 
 (defcustom library-org-capture-template-key "j"
@@ -300,6 +315,17 @@ Uses publication year, author last names, and title."
               (title (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
     (funcall library-generate-filename-function entry year author title)))
 
+(defun library--filename-from-bibtex-string (bibtex)
+  "Generate filename from BIBTEX without depositing it in references."
+  (with-temp-buffer
+    (bibtex-mode)
+    (insert bibtex)
+    (goto-char (point-min))
+    (when (search-forward "@" nil t)
+      (backward-char)
+      (bibtex-beginning-of-entry))
+    (library--filename-from-bibtex)))
+
 (defun library--deposit-bibtex-return-filename (bibtex)
   "Deposit BIBTEX into references file, return suitable filename."
   (save-window-excursion
@@ -325,6 +351,23 @@ Uses publication year, author last names, and title."
 NAME is the filename without extension."
   (expand-file-name (file-name-with-extension name "pdf")
                     library-pdf-directory))
+
+(defun library--path-of-name-with-extension (name directory extension)
+  "Return path for NAME in DIRECTORY with EXTENSION.
+NAME is truncated if needed so that the final path component respects
+`library-filename-max-bytes'.  EXTENSION should include the leading dot."
+  (let* ((extension (if (string-prefix-p "." extension)
+                        extension
+                      (concat "." extension)))
+         (max-base-bytes (- library-filename-max-bytes
+                            (library--file-name-bytes extension))))
+    (when (< max-base-bytes 1)
+      (user-error "library-filename-max-bytes (%d) is too small for %s files"
+                  library-filename-max-bytes extension))
+    (expand-file-name
+     (concat (library--truncate-to-bytes-with-suffix name max-base-bytes "-etc")
+             extension)
+     directory)))
 
 (defun library--process-pdf-bibtex (file bibtex)
   "Process pdf FILE with associated BIBTEX.
@@ -423,21 +466,122 @@ Returns the properly decoded string."
                (xml-node-children child-node)
                "")))
 
+(defun library--url-response-body-start ()
+  "Return buffer position where the current URL response body starts."
+  (let ((pos (if (markerp url-http-end-of-headers)
+                 (marker-position url-http-end-of-headers)
+               url-http-end-of-headers)))
+    (unless (integerp pos)
+      (user-error "URL response headers were incomplete"))
+    ;; In real `url.el' HTTP buffers this often points at the final
+    ;; newline of the header separator, while many tests model it as the
+    ;; first byte of the body.  Skip only when POS is still inside the
+    ;; CR/LF separator.
+    (if (and (memq (char-after pos) '(?\r ?\n))
+             (or (memq (char-before pos) '(?\r ?\n))
+                 (memq (char-after (1+ pos)) '(?\r ?\n))))
+        (save-excursion
+          (goto-char pos)
+          (skip-chars-forward "\r\n")
+          (point))
+      pos)))
+
 (defun library--url-response-body (buffer)
   "Return response body from URL BUFFER as a string."
   (with-current-buffer buffer
-    (buffer-substring-no-properties url-http-end-of-headers (point-max))))
+    (buffer-substring-no-properties
+     (library--url-response-body-start) (point-max))))
+
+(defun library--normalize-arxiv-id (id)
+  "Return a normalized arXiv identifier parsed from ID.
+ID may be a bare arXiv identifier, an \"arXiv:\" string, or an arXiv
+abstract/PDF/source URL.  Sanitized legacy filenames such as
+\"math_0309136\" are converted back to \"math/0309136\"."
+  (let ((case-fold-search t)
+        (id (string-trim (library--ensure-utf8-encoding (or id "")))))
+    (setq id (replace-regexp-in-string "[?#].*\\'" "" id))
+    (setq id (replace-regexp-in-string "\\`arxiv:" "" id t t))
+    (when (string-match
+           "\\`\\(?:https?://\\)?\\(?:www\\.\\)?arxiv\\.org/\\(?:abs\\|pdf\\|e-print\\|src\\)/\\(.+\\)\\'"
+           id)
+      (setq id (match-string 1 id)))
+    (when (string-match "\\`\\(?:abs\\|pdf\\|e-print\\|src\\)/\\(.+\\)\\'" id)
+      (setq id (match-string 1 id)))
+    (setq id (replace-regexp-in-string "/\\'" "" id))
+    (setq id (replace-regexp-in-string "\\.pdf\\'" "" id t t))
+    (setq id (string-trim id))
+    (when (string-match
+           "\\`\\([[:alpha:]][[:alnum:]-]*\\)_\\([0-9]\\{7\\}\\(?:v[0-9]+\\)?\\)\\'"
+           id)
+      (setq id (concat (match-string 1 id) "/" (match-string 2 id))))
+    (when (string-empty-p id)
+      (user-error "No arXiv ID specified"))
+    id))
+
+(defun library--read-arxiv-id ()
+  "Read an arXiv identifier, defaulting to the URL at point when present."
+  (read-string "arXiv ID: "
+               (when-let* ((url (thing-at-point 'url)))
+                 (library--normalize-arxiv-id url))))
+
+(defun library--arxiv-id-file-basename (arxiv-id)
+  "Return a filesystem-safe basename for ARXIV-ID."
+  (replace-regexp-in-string "/" "_" (library--normalize-arxiv-id arxiv-id)))
 
 (defun library--arxiv-id-with-legacy-prefix (arxiv-id)
   "Return ARXIV-ID, adding the legacy \"math/\" prefix when needed."
-  (if (string-match-p "\\.\\|/" arxiv-id)
-      arxiv-id
-    (concat "math/" arxiv-id)))
+  (let ((arxiv-id (library--normalize-arxiv-id arxiv-id)))
+    (if (string-match-p "\\.\\|/" arxiv-id)
+        arxiv-id
+      (concat "math/" arxiv-id))))
 
 (defun library--arxiv-query-url (arxiv-id)
   "Return arXiv API query URL for ARXIV-ID."
   (format "http://export.arxiv.org/api/query?id_list=%s"
           (library--arxiv-id-with-legacy-prefix arxiv-id)))
+
+(defun library--arxiv-pdf-url (arxiv-id)
+  "Return arXiv PDF URL for ARXIV-ID."
+  (format "https://arxiv.org/pdf/%s.pdf"
+          (library--arxiv-id-with-legacy-prefix arxiv-id)))
+
+(defun library--arxiv-source-url (arxiv-id)
+  "Return arXiv source archive URL for ARXIV-ID."
+  (format "https://arxiv.org/src/%s"
+          (library--arxiv-id-with-legacy-prefix arxiv-id)))
+
+(defun library--download-url-to-file (url file)
+  "Download URL to FILE and return FILE.
+Signal a user error if URL cannot be retrieved, returns an HTTP error, or
+appears to return an HTML page instead of the requested file."
+  (let ((buffer (url-retrieve-synchronously url nil nil library-arxiv-url-timeout)))
+    (unless buffer
+      (user-error "Unable to download %s" url))
+    (unwind-protect
+        (with-current-buffer buffer
+          (when (and (integerp url-http-response-status)
+                     (not (= url-http-response-status 200)))
+            (user-error "Unable to download %s (HTTP %d)"
+                        url url-http-response-status))
+          (unless (or (integerp url-http-end-of-headers)
+                      (markerp url-http-end-of-headers))
+            (user-error "Unable to download %s; response headers were incomplete"
+                        url))
+          (goto-char (library--url-response-body-start))
+          (when (looking-at-p "[[:space:]\n\r]*<")
+            (user-error "Unable to download %s; server returned HTML" url))
+          (make-directory (file-name-directory file) t)
+          (let* ((temporary-file-directory (file-name-directory file))
+                 (tempfile (make-temp-file ".library-download-")))
+            (unwind-protect
+                (progn
+                  (let ((coding-system-for-write 'no-conversion))
+                    (write-region (point) (point-max) tempfile nil 'silent))
+                  (rename-file tempfile file t))
+              (when (file-exists-p tempfile)
+                (delete-file tempfile))))
+          file)
+      (kill-buffer buffer))))
 
 (defun library--arxiv-response-entry (buffer)
   "Return the Atom entry parsed from arXiv API response BUFFER, or nil."
@@ -445,7 +589,8 @@ Returns the properly decoded string."
     (unless (string-prefix-p "Rate exceeded" body)
       (car (xml-get-children
             (car (with-current-buffer buffer
-                   (xml-parse-region url-http-end-of-headers (point-max))))
+                   (xml-parse-region
+                    (library--url-response-body-start) (point-max))))
             'entry)))))
 
 (defun library--arxiv-response-rate-limited-p (buffer)
@@ -508,7 +653,8 @@ RATE-LIMITED-P should be non-nil when the arXiv API reported throttling."
          (url-request-extra-headers nil)
          (url-mime-accept-string "application/atom+xml")
          (url (library--arxiv-query-url arxiv-id))
-         (buffer (url-retrieve-synchronously url)))
+         (buffer (url-retrieve-synchronously
+                  url nil nil library-arxiv-url-timeout)))
     (unless buffer
       (user-error "Unable to retrieve arXiv metadata for %s" arxiv-id))
     (unwind-protect
@@ -522,21 +668,24 @@ RATE-LIMITED-P should be non-nil when the arXiv API reported throttling."
 
 (defun library--bibtex-from-arxiv-id-nasa-ads (arxiv-id)
   "Retrieve bibtex entry for ARXIV-ID using NASA ADS."
-  (let* ((url
-          ;;  if arxiv-id contains a dot:
-          (if (string-match "\\." arxiv-id)
-              (format "https://ui.adsabs.harvard.edu/abs/arXiv:%s/exportcitation" arxiv-id)
-            (format "https://ui.adsabs.harvard.edu/abs/arXiv:math%s/exportcitation" (concat "%2F" arxiv-id))))
-         (response-buffer (url-retrieve-synchronously url)))
-    (with-current-buffer response-buffer
-      (if (not (re-search-forward "<textarea class=\"export-textarea form-control\"" nil t))
-          nil
-        (let ((start (match-beginning 0)))
-          (if (not (re-search-forward "</textarea>" nil t))
-              nil
-            (let* ((end (match-end 0)))
-              (caddr
-               (libxml-parse-xml-region start end)))))))))
+  (let* ((ads-id (replace-regexp-in-string
+                  "/" "%2F" (library--arxiv-id-with-legacy-prefix arxiv-id) t t))
+         (url (format "https://ui.adsabs.harvard.edu/abs/arXiv:%s/exportcitation"
+                      ads-id))
+         (response-buffer (url-retrieve-synchronously
+                           url nil nil library-arxiv-url-timeout)))
+    (when response-buffer
+      (unwind-protect
+          (with-current-buffer response-buffer
+            (if (not (re-search-forward "<textarea class=\"export-textarea form-control\"" nil t))
+                nil
+              (let ((start (match-beginning 0)))
+                (if (not (re-search-forward "</textarea>" nil t))
+                    nil
+                  (let* ((end (match-end 0)))
+                    (caddr
+                     (libxml-parse-xml-region start end)))))))
+        (kill-buffer response-buffer)))))
 
 (defun library--capture-journal-entry (text)
   "Capture TEXT as a journal entry.
@@ -549,19 +698,22 @@ template to use."
       (org-capture-finalize))))
 
 ;;;###autoload
-(defun library-process-arxiv (&optional filename)
+(defun library-process-arxiv (&optional filename arxiv-id)
   "Process arxiv pdf FILE or current buffer/Dired file.
 If FILENAME is not specified, then use current buffer or Dired
 file.  First, retrieve bibtex entry from arxiv API.  Then, deposit
 BIBTEX into references file.  Then, move PDF file to PDF
 directory, and rename it according to the BIBTEX entry.  Finally,
-create a journal entry.  Returns the new path of the PDF file."
+create a journal entry.  If ARXIV-ID is specified, use it instead
+of deriving the identifier from FILENAME.  Returns the new path of
+the PDF file."
   (interactive)
   (unless filename
     (if (derived-mode-p 'dired-mode)
         (setq filename (dired-get-filename))
       (setq filename (buffer-file-name))))
-  (when-let* ((arxiv-id (file-name-base filename))
+  (when-let* ((arxiv-id (library--normalize-arxiv-id
+                         (or arxiv-id (file-name-base filename))))
               (bibtex-entry (library--bibtex-from-arxiv-id arxiv-id)))
     (library--process-pdf-bibtex-with-log filename bibtex-entry arxiv-id)))
 
@@ -573,7 +725,7 @@ create a journal entry.  Returns the new path of the PDF file."
          (if (derived-mode-p 'dired-mode)
              (dired-get-filename)
            (buffer-file-name)))
-        (arxiv-id (read-string "arxiv id: ")))
+        (arxiv-id (library--read-arxiv-id)))
     (when-let* ((bibtex-entry (library--bibtex-from-arxiv-id arxiv-id)))
       (library--process-pdf-bibtex-with-log filename bibtex-entry arxiv-id))))
 
@@ -620,26 +772,141 @@ create a journal entry.  Returns the new path of the PDF file."
       (find-alternate-file path)
       (message "PDF file moved and renamed successfully."))))
 
+(defun library--path-of-directory-name (name directory)
+  "Return full path of child directory NAME in DIRECTORY.
+NAME is truncated if needed so that the final path component respects
+`library-filename-max-bytes'."
+  (expand-file-name
+   (library--truncate-to-bytes-with-suffix
+    name library-filename-max-bytes "-etc")
+   directory))
+
+(defun library--arxiv-source-directory-path (name)
+  "Return full source directory path for basename NAME."
+  (library--path-of-directory-name name library-arxiv-source-directory))
+
+(defun library--arxiv-source-name-from-metadata (id)
+  "Return year/authors/title source directory basename for arXiv ID.
+Return nil if metadata lookup or filename generation fails."
+  (condition-case err
+      (when-let* ((bibtex (library--bibtex-from-arxiv-id id)))
+        (library--filename-from-bibtex-string bibtex))
+    (error
+     (message "Unable to name arXiv source from metadata: %s"
+              (error-message-string err))
+     nil)))
+
+(defun library--arxiv-source-name (id &optional name)
+  "Return source directory basename for arXiv ID.
+If NAME is nil, try the same year/authors/title filename used for PDFs,
+falling back to an arXiv-id basename."
+  (replace-regexp-in-string
+   "/" "_"
+   (or name
+       (library--arxiv-source-name-from-metadata id)
+       (library--arxiv-id-file-basename
+        (library--arxiv-id-with-legacy-prefix id)))))
+
+(defun library--delete-file-or-directory (path)
+  "Delete file or directory at PATH, if it exists."
+  (cond
+   ((file-directory-p path)
+    (delete-directory path t))
+   ((file-exists-p path)
+    (delete-file path))))
+
+(defun library--extract-tar-gz (archive target-directory)
+  "Extract gzipped tar ARCHIVE into TARGET-DIRECTORY.
+Any existing file or directory at TARGET-DIRECTORY is replaced after the
+archive has been successfully extracted into a temporary directory."
+  (let ((tar (or (executable-find "tar")
+                 (user-error "Cannot find tar executable")))
+        (parent (file-name-directory (directory-file-name target-directory)))
+        tempdir renamed)
+    (make-directory parent t)
+    (let ((temporary-file-directory parent))
+      (setq tempdir (make-temp-file ".library-source-" t)))
+    (unwind-protect
+        (with-temp-buffer
+          (let ((exit-code (call-process tar nil t nil
+                                         "-xzf" archive "-C" tempdir)))
+            (unless (zerop exit-code)
+              (user-error "Unable to extract arXiv source archive: %s"
+                          (string-trim (buffer-string)))))
+          (library--delete-file-or-directory target-directory)
+          (rename-file tempdir target-directory)
+          (setq renamed t)
+          target-directory)
+      (when (and tempdir (file-exists-p tempdir) (not renamed))
+        (delete-directory tempdir t)))))
+
+(defun library--download-arxiv-source (id &optional name)
+  "Download and extract arXiv source archive for ID.
+If NAME is non-nil, use it as the extracted directory basename.  Otherwise,
+use a filesystem-safe version of ID."
+  (let* ((id (library--normalize-arxiv-id id))
+         (name (library--arxiv-source-name id name))
+         (url (library--arxiv-source-url id))
+         (target-directory (library--arxiv-source-directory-path name))
+         (archive (make-temp-file "library-arxiv-source-" nil ".tar.gz")))
+    (unwind-protect
+        (progn
+          (library--download-url-to-file url archive)
+          (library--extract-tar-gz archive target-directory)
+          (message "arXiv source extracted to %s" target-directory)
+          target-directory)
+      (when (file-exists-p archive)
+        (delete-file archive)))))
+
+(defun library--download-arxiv-source-noerror (id &optional name)
+  "Download and extract arXiv source archive for ID, reporting failures."
+  (condition-case err
+      (library--download-arxiv-source id name)
+    (error
+     (message "Unable to download arXiv source: %s"
+              (error-message-string err))
+     nil)))
+
 ;;;###autoload
-(defun library-download-arxiv (id)
+(defun library-download-arxiv-source (id)
+  "Download and extract source archive for given arXiv ID.
+When called interactively, defaults to the arXiv URL at point if present."
+  (interactive (list (library--read-arxiv-id)))
+  (library--download-arxiv-source id))
+
+;;;###autoload
+(defun library-download-arxiv (id &optional download-source)
   "Download, process and visit PDF with given arXiv ID.
-When called interactively, defaults to URL at point if present."
+When called interactively, defaults to URL at point if present.
+With prefix argument DOWNLOAD-SOURCE, also download the arXiv source
+archive and extract it into a directory named after the processed PDF."
   (interactive
-   (list (read-string "arXiv ID: " (thing-at-point 'url))))
+   (list (library--read-arxiv-id) current-prefix-arg))
   (save-excursion
-    (when (string-match ".*/" id)
-      (setq id (substring id (match-end 0))))
-    (when (string-match "\\.pdf$" id)
-      (setq id (substring id 0 -4)))
     (let* ((id (library--ensure-utf8-encoding id))
-           (url (format "https://arxiv.org/pdf/%s.pdf" id))
+           (id (library--normalize-arxiv-id id))
+           (url (library--arxiv-pdf-url id))
            (outfile (expand-file-name
-                     (format "%s.pdf" id) library-download-directory)))
-      (url-copy-file url outfile t)
-      (if (file-exists-p outfile)
-          (when-let* ((newfile (library-process-arxiv outfile)))
-            (find-file newfile))
-        (message "File not found.")))))
+                     (format "%s.pdf"
+                             (library--arxiv-id-file-basename
+                              (library--arxiv-id-with-legacy-prefix id)))
+                     library-download-directory)))
+      (library--download-url-to-file url outfile)
+      (condition-case err
+          (let ((newfile (library-process-arxiv outfile id)))
+            (if newfile
+                (progn
+                  (when download-source
+                    (library--download-arxiv-source-noerror
+                     id (file-name-base newfile)))
+                  (find-file newfile))
+              (when download-source
+                (library--download-arxiv-source-noerror id))
+              (message "PDF downloaded but not processed.")))
+        (error
+         (when download-source
+           (library--download-arxiv-source-noerror id))
+         (signal (car err) (cdr err)))))))
 
 (provide 'library)
 ;;; library.el ends here
