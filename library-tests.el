@@ -51,6 +51,17 @@
           archive)
       (delete-directory source-dir t))))
 
+(defun library-tests--make-single-source-archive ()
+  "Create a gzip-compressed single source file and return its filename."
+  (let ((gzip (or (executable-find "gzip")
+                  (error "Cannot find gzip executable")))
+        (source (make-temp-file "library-single-source-" nil ".tex")))
+    (with-temp-file source
+      (insert "\\documentclass{article}\nSingle source.\n"))
+    (unless (zerop (call-process gzip nil nil nil "-f" source))
+      (error "Unable to compress test source"))
+    (concat source ".gz")))
+
 (ert-deftest library--bounded-pdf-basename-respects-byte-limit ()
   (let ((library-filename-max-bytes 80)
         (library-filename-max-authors 3))
@@ -226,6 +237,21 @@
                            "\\documentclass{article}\n\\begin{document}\nHi.\n\\end{document}\n"))))
       (delete-file archive)
       (delete-directory library-arxiv-source-directory t))))
+
+(ert-deftest library--extract-tar-gz-handles-single-gzipped-source ()
+  (skip-unless (and (executable-find "tar") (executable-find "gzip")))
+  (let ((archive (library-tests--make-single-source-archive))
+        (parent (make-temp-file "library-single-source-output-" t)))
+    (unwind-protect
+        (let ((outdir (expand-file-name "paper" parent)))
+          (library--extract-tar-gz archive outdir)
+          (should (equal (with-temp-buffer
+                           (insert-file-contents
+                            (expand-file-name "source.tex" outdir))
+                           (buffer-string))
+                         "\\documentclass{article}\nSingle source.\n")))
+      (delete-file archive)
+      (delete-directory parent t))))
 
 (ert-deftest library--download-url-to-file-errors-on-html-response ()
   (let ((library-arxiv-url-timeout 7)

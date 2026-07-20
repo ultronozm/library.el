@@ -816,7 +816,9 @@ falling back to an arXiv-id basename."
     (delete-file path))))
 
 (defun library--extract-tar-gz (archive target-directory)
-  "Extract gzipped tar ARCHIVE into TARGET-DIRECTORY.
+  "Extract gzipped arXiv source ARCHIVE into TARGET-DIRECTORY.
+ARCHIVE may be either a tar archive or a gzip-compressed single source
+file.  The latter is written as `source.tex'.
 Any existing file or directory at TARGET-DIRECTORY is replaced after the
 archive has been successfully extracted into a temporary directory."
   (let ((tar (or (executable-find "tar")
@@ -831,8 +833,19 @@ archive has been successfully extracted into a temporary directory."
           (let ((exit-code (call-process tar nil t nil
                                          "-xzf" archive "-C" tempdir)))
             (unless (zerop exit-code)
-              (user-error "Unable to extract arXiv source archive: %s"
-                          (string-trim (buffer-string)))))
+              ;; arXiv also serves a single source file compressed with
+              ;; gzip.  In that case there is no tar container to unpack.
+              (erase-buffer)
+              (delete-directory tempdir t)
+              (make-directory tempdir)
+              (let ((gzip (or (executable-find "gzip")
+                              (user-error "Cannot find gzip executable")))
+                    (compressed (expand-file-name "source.tex.gz" tempdir)))
+                (copy-file archive compressed)
+                (setq exit-code (call-process gzip nil t nil "-df" compressed)))
+              (unless (zerop exit-code)
+                (user-error "Unable to extract arXiv source archive: %s"
+                            (string-trim (buffer-string))))))
           (library--delete-file-or-directory target-directory)
           (rename-file tempdir target-directory)
           (setq renamed t)
