@@ -416,5 +416,59 @@
                                :source source-directory))))
       (delete-directory library-download-directory t))))
 
+(ert-deftest library-import-pdf-exact-key-and-replacement ()
+  (let* ((dir (make-temp-file "library-import-" t))
+         (library-pdf-directory (expand-file-name "pdfs" dir))
+         (library-bibtex-file (expand-file-name "refs.bib" dir))
+         (library-org-capture-template-key nil)
+         (bib "@article{Key, author={Doe, Jane}, title={Paper}, year={2026}}")
+         (other "@article{KeyLong, author={Roe, Jane}, title={Mentions Key}, year={2025}}\n")
+         (source (expand-file-name "input.pdf" dir)))
+    (unwind-protect
+        (progn
+          (with-temp-file library-bibtex-file (insert other))
+          (with-temp-file source (insert "%PDF-1.4\nfirst"))
+          (let ((path (library-import-pdf source bib)))
+            (should (file-exists-p path))
+            (should-not (file-exists-p source))
+            (with-current-buffer (find-file-noselect library-bibtex-file)
+              (should (bibtex-search-entry "Key"))
+              (should (equal (bibtex-text-in-field "title" (bibtex-parse-entry)) "Paper")))
+            (with-temp-file source (insert "%PDF-1.4\nsecond"))
+            (let ((before (with-temp-buffer
+                            (insert-file-contents library-bibtex-file)
+                            (buffer-string))))
+              (should-error (library-import-pdf source bib) :type 'file-already-exists)
+              (should (file-exists-p source))
+              (should (equal before (with-temp-buffer
+                                      (insert-file-contents library-bibtex-file)
+                                      (buffer-string)))))
+            ;; Existing metadata wins over a changed incoming title.
+            (should (equal path (library-import-pdf source
+                                 (replace-regexp-in-string "Paper" "New title" bib) t)))
+            (should (equal "%PDF-1.4\nsecond"
+                           (with-temp-buffer (insert-file-contents path) (buffer-string))))
+            (should (equal path (library-import-pdf path bib)))))
+      (when-let* ((buffer (get-file-buffer library-bibtex-file))) (kill-buffer buffer))
+      (delete-directory dir t))))
+
+(ert-deftest library-import-pdf-editor-journal ()
+  (let* ((dir (make-temp-file "library-book-" t))
+         (library-pdf-directory dir)
+         (library-bibtex-file (expand-file-name "refs.bib" dir))
+         (source (expand-file-name "input.pdf" dir))
+         (bib "@book{Book, editor={Doe, Jane}, title={Volume}, year={2026}}")
+         log)
+    (unwind-protect
+        (progn
+          (with-temp-file source (insert "%PDF-1.4\nbook"))
+          (cl-letf (((symbol-function 'library--capture-journal-entry)
+                     (lambda (text) (setq log text))))
+            (should (file-exists-p (library-import-pdf source bib))))
+          (should (string-match-p ":EDITORS: Doe, Jane" log))
+          (should-not (string-match-p ":AUTHORS:" log)))
+      (when-let* ((buffer (get-file-buffer library-bibtex-file))) (kill-buffer buffer))
+      (delete-directory dir t))))
+
 (provide 'library-tests)
 ;;; library-tests.el ends here

@@ -334,25 +334,68 @@ Uses publication year, author last names, and title."
       (bibtex-beginning-of-entry))
     (library--filename-from-bibtex)))
 
+(defun library--bibtex-key (bibtex)
+  "Return the citation key of BIBTEX, or signal an error."
+  (with-temp-buffer
+    (bibtex-mode)
+    (insert bibtex)
+    (goto-char (point-min))
+    (let ((key (cdr (assoc "=key=" (bibtex-parse-entry)))))
+      (unless (and key (not (string-empty-p key)))
+        (user-error "BibTeX entry has no citation key"))
+      key)))
+
 (defun library--deposit-bibtex-return-filename (bibtex)
-  "Deposit BIBTEX into references file, return suitable filename."
-  (save-window-excursion
-    (let ((name))
-      (with-temp-buffer
-        (insert bibtex)
-        (goto-char (point-min))
-        (search-forward-regexp "{\\([^,]+\\)")
-        (setq name (match-string 1))
-        (if (not name)
-            (error "Invalid bib entry")))
-      (find-file library-bibtex-file)
-      (goto-char (point-min))
-      (unless (search-forward name (point-max) t)
-        (goto-char (point-max))
-        (newline-and-indent)
-        (insert bibtex)
-        (save-buffer))
-      (library--filename-from-bibtex))))
+  "Deposit BIBTEX into references file, return suitable filename.
+Reuse an existing entry with the same citation key without changing it."
+  (let ((key (library--bibtex-key bibtex)))
+    (with-current-buffer (find-file-noselect library-bibtex-file)
+      (save-excursion
+        (unless (bibtex-search-entry key)
+          (goto-char (point-max))
+          (insert "\n" bibtex)
+          (save-buffer)
+          (bibtex-search-entry key))
+        (library--filename-from-bibtex)))))
+
+;;;###autoload
+(defun library-import-pdf (file bibtex &optional replace arxiv-id)
+  "Move PDF FILE into the library and register BIBTEX and a journal entry.
+Return the destination path.  Reuse existing bibliography metadata when
+its citation key matches BIBTEX.  Existing entries are not updated.
+
+An existing destination signals `file-already-exists' before changing
+files or the bibliography, unless REPLACE is non-nil.  REPLACE permits
+replacement without making a backup; callers should preserve any version
+they want to retain.  FILE already at the destination is not moved.
+Optional ARXIV-ID adds an arXiv link to the journal entry.
+Journal capture follows `library-org-capture-template-key'; nil disables it.
+This function does not download files or arXiv sources."
+  (let* ((file (expand-file-name file))
+         (key (library--bibtex-key bibtex))
+         (bibtex
+          (with-current-buffer (find-file-noselect library-bibtex-file)
+            (save-excursion
+              (if (bibtex-search-entry key)
+                  (let ((beg (point)))
+                    (bibtex-end-of-entry)
+                    (buffer-substring-no-properties beg (point)))
+                bibtex))))
+         (name (or (library--filename-from-bibtex-string bibtex)
+                   (user-error "BibTeX needs year, title, and author or editor")))
+         (path (library--path-of-name name))
+         (same-file (file-equal-p file path)))
+    (unless (file-readable-p file)
+      (user-error "Cannot read PDF: %s" file))
+    (when (and (file-exists-p path) (not same-file) (not replace))
+      (signal 'file-already-exists (list "Library PDF already exists" path)))
+    (make-directory library-pdf-directory t)
+    (library--deposit-bibtex-return-filename bibtex)
+    (unless same-file
+      (dired-rename-file file path replace))
+    (library--capture-journal-entry
+     (library--generate-log-entry arxiv-id bibtex path))
+    path))
 
 (defun library--path-of-name (name)
   "Return full path of file NAME in PDF directory.
@@ -399,7 +442,8 @@ Optionally, make use of specified ARXIV-ID."
               (bibtex-parse-entry)))
            (author (library--ensure-utf8-encoding
                     (czm-tex-util-remove-braces-accents
-                     (bibtex-text-in-field "author" entry))))
+                     (or (bibtex-text-in-field "author" entry)
+                         (bibtex-text-in-field "editor" entry)))))
            (title
             (library--ensure-utf8-encoding
              (string-clean-whitespace
@@ -415,7 +459,10 @@ Optionally, make use of specified ARXIV-ID."
        (when arxiv-id
          (format ":ARXIV_ID: %s\n" arxiv-id))
        (format ":YEAR: %s\n" year)
-       (format ":AUTHORS: %s\n" author)
+       (format (if (bibtex-text-in-field "author" entry)
+                   ":AUTHORS: %s\n"
+                 ":EDITORS: %s\n")
+               author)
        (format ":TITLE: %s\n" title)
        ":END:\n"
        "\n"
