@@ -73,6 +73,14 @@
   :type 'string
   :group 'library)
 
+(defcustom library-download-arxiv-include-source t
+  "Whether `library-download-arxiv' also downloads the arXiv source.
+When non-nil, the source archive is extracted into a directory named
+after the processed PDF.  This option applies to both interactive and
+non-interactive calls to `library-download-arxiv'."
+  :type 'boolean
+  :group 'library)
+
 (defcustom library-arxiv-url-timeout 30
   "Seconds to wait for arXiv and ADS HTTP requests.
 If nil, wait indefinitely."
@@ -888,13 +896,17 @@ When called interactively, defaults to the arXiv URL at point if present."
   (library--download-arxiv-source id))
 
 ;;;###autoload
-(defun library-download-arxiv (id &optional download-source)
-  "Download, process and visit PDF with given arXiv ID.
+(defun library-download-arxiv (id)
+  "Download and process the PDF with given arXiv ID.
 When called interactively, defaults to URL at point if present.
-With prefix argument DOWNLOAD-SOURCE, also download the arXiv source
-archive and extract it into a directory named after the processed PDF."
-  (interactive
-   (list (library--read-arxiv-id) current-prefix-arg))
+When `library-download-arxiv-include-source' is non-nil, also download
+the arXiv source archive and extract it into a directory named after the
+processed PDF.  Interactively, visit the processed PDF.
+
+Return a plist whose `:pdf' value is the processed PDF path, or the
+downloaded PDF path when processing fails, and whose `:source' value is
+the extracted source directory, or nil if no source was downloaded."
+  (interactive (list (library--read-arxiv-id)))
   (save-excursion
     (let* ((id (library--ensure-utf8-encoding id))
            (id (library--normalize-arxiv-id id))
@@ -908,16 +920,20 @@ archive and extract it into a directory named after the processed PDF."
       (condition-case err
           (let ((newfile (library-process-arxiv outfile id)))
             (if newfile
-                (progn
-                  (when download-source
-                    (library--download-arxiv-source-noerror
-                     id (file-name-base newfile)))
-                  (find-file newfile))
-              (when download-source
-                (library--download-arxiv-source-noerror id))
-              (message "PDF downloaded but not processed.")))
+                (let ((source
+                       (when library-download-arxiv-include-source
+                         (library--download-arxiv-source-noerror
+                          id (file-name-base newfile)))))
+                  (when (called-interactively-p 'interactive)
+                    (find-file newfile))
+                  (list :pdf newfile :source source))
+              (let ((source
+                     (when library-download-arxiv-include-source
+                       (library--download-arxiv-source-noerror id))))
+                (message "PDF downloaded but not processed.")
+                (list :pdf outfile :source source))))
         (error
-         (when download-source
+         (when library-download-arxiv-include-source
            (library--download-arxiv-source-noerror id))
          (signal (car err) (cdr err)))))))
 

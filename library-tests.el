@@ -313,7 +313,8 @@
         (delete-file outfile)))))
 
 (ert-deftest library-download-arxiv-keeps-pdf-flow-when-source-fails ()
-  (let* ((library-download-directory (make-temp-file "library-download-" t))
+  (let* ((library-download-arxiv-include-source t)
+         (library-download-directory (make-temp-file "library-download-" t))
          (processed-file (expand-file-name "processed.pdf"
                                            library-download-directory))
          visited-file)
@@ -332,12 +333,14 @@
                   ((symbol-function 'find-file)
                    (lambda (file)
                      (setq visited-file file))))
-          (library-download-arxiv "2402.00354" t)
-          (should (equal visited-file processed-file)))
+          (should (equal (library-download-arxiv "2402.00354")
+                         (list :pdf processed-file :source nil)))
+          (should-not visited-file))
       (delete-directory library-download-directory t))))
 
 (ert-deftest library-download-arxiv-downloads-source-when-processing-returns-nil ()
-  (let* ((library-download-directory (make-temp-file "library-download-" t))
+  (let* ((library-download-arxiv-include-source t)
+         (library-download-directory (make-temp-file "library-download-" t))
          source-id
          source-name)
     (unwind-protect
@@ -353,9 +356,64 @@
                    (lambda (id &optional name)
                      (setq source-id id)
                      (setq source-name name))))
-          (library-download-arxiv "2402.00354" t)
+          (should (equal (library-download-arxiv "2402.00354")
+                         (list :pdf
+                               (expand-file-name "2402.00354.pdf"
+                                                 library-download-directory)
+                               :source nil)))
           (should (equal source-id "2402.00354"))
           (should (null source-name)))
+      (delete-directory library-download-directory t))))
+
+(ert-deftest library-download-arxiv-respects-disabled-source-option ()
+  (let* ((library-download-arxiv-include-source nil)
+         (library-download-directory (make-temp-file "library-download-" t))
+         (processed-file (expand-file-name "processed.pdf"
+                                           library-download-directory))
+         source-downloaded)
+    (unwind-protect
+        (cl-letf (((symbol-function 'library--download-url-to-file)
+                   (lambda (_url file)
+                     (with-temp-file file
+                       (insert "pdf"))
+                     file))
+                  ((symbol-function 'library-process-arxiv)
+                   (lambda (_file _arxiv-id)
+                     processed-file))
+                  ((symbol-function 'library--download-arxiv-source-noerror)
+                   (lambda (&rest _args)
+                     (setq source-downloaded t)))
+                  ((symbol-function 'find-file) #'ignore))
+          (should (equal (library-download-arxiv "2402.00354")
+                         (list :pdf processed-file :source nil)))
+          (should-not source-downloaded))
+      (delete-directory library-download-directory t))))
+
+(ert-deftest library-download-arxiv-returns-source-directory ()
+  (let* ((library-download-arxiv-include-source t)
+         (library-download-directory (make-temp-file "library-download-" t))
+         (processed-file (expand-file-name "processed.pdf"
+                                           library-download-directory))
+         (source-directory (expand-file-name "processed"
+                                             library-download-directory)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'library--download-url-to-file)
+                   (lambda (_url file)
+                     (with-temp-file file
+                       (insert "pdf"))
+                     file))
+                  ((symbol-function 'library-process-arxiv)
+                   (lambda (_file _arxiv-id)
+                     processed-file))
+                  ((symbol-function 'library--download-arxiv-source-noerror)
+                   (lambda (_id &optional _name)
+                     source-directory))
+                  ((symbol-function 'find-file)
+                   (lambda (&rest _args)
+                     (ert-fail "Lisp call unexpectedly visited the PDF"))))
+          (should (equal (library-download-arxiv "2402.00354")
+                         (list :pdf processed-file
+                               :source source-directory))))
       (delete-directory library-download-directory t))))
 
 (provide 'library-tests)
