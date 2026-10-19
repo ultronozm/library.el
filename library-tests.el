@@ -312,6 +312,37 @@
       (when (file-exists-p outfile)
         (delete-file outfile)))))
 
+(ert-deftest library-download-arxiv-processes-generated-bibtex ()
+  (let* ((dir (make-temp-file "library-arxiv-bibtex-" t))
+         (library-download-directory dir)
+         (library-pdf-directory (expand-file-name "pdfs" dir))
+         (library-bibtex-file (expand-file-name "refs.bib" dir))
+         (library-download-arxiv-include-source nil)
+         (library-org-capture-template-key nil))
+    (make-directory library-pdf-directory)
+    (unwind-protect
+        (cl-letf (((symbol-function 'library--download-url-to-file)
+                   (lambda (_url file)
+                     (with-temp-file file (insert "%PDF-1.4\n"))))
+                  ((symbol-function 'library--bibtex-from-arxiv-id)
+                   (lambda (id)
+                     (library--arxiv-entry-bibtex
+                      '(entry nil
+                              (published nil "2026-08-01")
+                              (title nil "Sample Title")
+                              (author nil (name nil "Doe, Jane")))
+                      id))))
+          (let ((result (library-download-arxiv
+                         "https://arxiv.org/abs/2608.30576")))
+            (should (file-exists-p (plist-get result :pdf)))
+            (should (equal (file-name-nondirectory (plist-get result :pdf))
+                           "2026_doe--Sample-Title.pdf"))
+            (with-current-buffer (find-file-noselect library-bibtex-file)
+              (should (bibtex-search-entry "2026arXiv2608.30576")))))
+      (when-let* ((buffer (get-file-buffer library-bibtex-file)))
+        (kill-buffer buffer))
+      (delete-directory dir t))))
+
 (ert-deftest library-download-arxiv-keeps-pdf-flow-when-source-fails ()
   (let* ((library-download-arxiv-include-source t)
          (library-download-directory (make-temp-file "library-download-" t))

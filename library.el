@@ -340,6 +340,7 @@ Uses publication year, author last names, and title."
     (bibtex-mode)
     (insert bibtex)
     (goto-char (point-min))
+    (skip-chars-forward " \t\r\n")
     (let ((key (cdr (assoc "=key=" (bibtex-parse-entry)))))
       (unless (and key (not (string-empty-p key)))
         (user-error "BibTeX entry has no citation key"))
