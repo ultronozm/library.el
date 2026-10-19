@@ -501,5 +501,41 @@
       (when-let* ((buffer (get-file-buffer library-bibtex-file))) (kill-buffer buffer))
       (delete-directory dir t))))
 
+(ert-deftest library-download-preprint-hexagon ()
+  (let* ((root (make-temp-file "library-hexagon-test-" t))
+         (library-download-directory root)
+         (library-download-arxiv-include-source t)
+         urls)
+    (unwind-protect
+        (cl-letf (((symbol-function 'library--download-url-to-file)
+                   (lambda (url file)
+                     (push url urls)
+                     (with-temp-file file
+                       (insert (if (string-match-p "/api/bibtex/" url)
+                                   "@misc{hexagon:2610.00200v1,\n  title={Example},\n  year={2026},\n  note={Contributors: A. One; B. Two},\n  url={https://hexagonmath.org/2610.00200v1}\n}"
+                                 "%PDF-")))))
+                  ((symbol-function 'library--process-pdf-bibtex-with-log)
+                   (lambda (file bibtex id)
+                     (should (string-match-p "author={A. One and B. Two}" bibtex))
+                     (let ((log (library--generate-log-entry id bibtex file)))
+                       (should (string-match-p ":HEXAGON_ID: 2610.00200v1" log))
+                       (should (string-match-p "Hexagon link" log))
+                       (should-not (string-match-p "arxiv.org" log)))
+                     file))
+                  ((symbol-function 'library--download-hexagon-source-noerror)
+                   (lambda (id name)
+                     (should (equal id "2610.00200v1"))
+                     (should (equal name "hexagon-2610.00200v1"))
+                     "/source")))
+          (dolist (input '("https://hexagonmath.org/2610.00200v1"
+                           "hexagon:2610.00200v1"
+                           "https://hexagonmath.org/pdf/2610.00200v1.pdf?download=1"))
+            (should (equal (library-download-preprint input)
+                           (list :pdf (expand-file-name "hexagon-2610.00200v1.pdf" root)
+                                 :source "/source"))))
+          (should (member "https://hexagonmath.org/pdf/2610.00200v1" urls))
+          (should (member "https://hexagonmath.org/api/bibtex/2610.00200v1" urls)))
+      (delete-directory root t))))
+
 (provide 'library-tests)
 ;;; library-tests.el ends here

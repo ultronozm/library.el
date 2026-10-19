@@ -69,12 +69,12 @@
   :group 'library)
 
 (defcustom library-arxiv-source-directory "~/Dropbox/math documents/arxiv-sources/"
-  "Directory where arXiv source archives are stored."
+  "Directory where arXiv and Hexagon source archives are extracted."
   :type 'string
   :group 'library)
 
 (defcustom library-download-arxiv-include-source t
-  "Whether `library-download-arxiv' also downloads the arXiv source.
+  "Whether `library-download-arxiv' also downloads the preprint source.
 When non-nil, the source archive is extracted into a directory named
 after the processed PDF.  This option applies to both interactive and
 non-interactive calls to `library-download-arxiv'."
@@ -454,11 +454,15 @@ Optionally, make use of specified ARXIV-ID."
       (concat
        title
        (when arxiv-id
-         (format " (arXiv:%s)  :arxiv" arxiv-id))
+         (if (string-prefix-p "hexagon:" arxiv-id)
+             (format " (%s)  :hexagon" arxiv-id)
+           (format " (arXiv:%s)  :arxiv" arxiv-id)))
        "\n"
        ":PROPERTIES:\n"
        (when arxiv-id
-         (format ":ARXIV_ID: %s\n" arxiv-id))
+         (if (string-prefix-p "hexagon:" arxiv-id)
+             (format ":HEXAGON_ID: %s\n" (substring arxiv-id 8))
+           (format ":ARXIV_ID: %s\n" arxiv-id)))
        (format ":YEAR: %s\n" year)
        (format (if (bibtex-text-in-field "author" entry)
                    ":AUTHORS: %s\n"
@@ -469,7 +473,10 @@ Optionally, make use of specified ARXIV-ID."
        "\n"
        (format (concat "[[%s][" library-local-pdf-link-name "]]\n\n") file)
        (when arxiv-id
-         (format "[[https://arxiv.org/abs/%s][arXiv link]]\n\n" arxiv-id))))))
+         (if (string-prefix-p "hexagon:" arxiv-id)
+             (format "[[https://hexagonmath.org/%s][Hexagon link]]\n\n"
+                     (substring arxiv-id 8))
+           (format "[[https://arxiv.org/abs/%s][arXiv link]]\n\n" arxiv-id)))))))
 
 (defun library--process-pdf-bibtex-with-log (file bibtex &optional arxiv-id)
   "Process pdf FILE with associated BIBTEX and optional ARXIV-ID.
@@ -871,14 +878,15 @@ falling back to an arXiv-id basename."
    ((file-exists-p path)
     (delete-file path))))
 
-(defun library--extract-tar-gz (archive target-directory)
+(defun library--extract-tar-gz (archive target-directory &optional zip)
   "Extract gzipped arXiv source ARCHIVE into TARGET-DIRECTORY.
+When ZIP is non-nil, extract a ZIP archive using unzip instead.
 ARCHIVE may be either a tar archive or a gzip-compressed single source
 file.  The latter is written as `source.tex'.
 Any existing file or directory at TARGET-DIRECTORY is replaced after the
 archive has been successfully extracted into a temporary directory."
-  (let ((tar (or (executable-find "tar")
-                 (user-error "Cannot find tar executable")))
+  (let ((tar (or (executable-find (if zip "unzip" "tar"))
+                 (user-error "Cannot find %s executable" (if zip "unzip" "tar"))))
         (parent (file-name-directory (directory-file-name target-directory)))
         tempdir renamed)
     (make-directory parent t)
@@ -886,9 +894,14 @@ archive has been successfully extracted into a temporary directory."
       (setq tempdir (make-temp-file ".library-source-" t)))
     (unwind-protect
         (with-temp-buffer
-          (let ((exit-code (call-process tar nil t nil
-                                         "-xzf" archive "-C" tempdir)))
+          (let ((exit-code (apply #'call-process tar nil t nil
+                                  (if zip
+                                      (list "-q" archive "-d" tempdir)
+                                    (list "-xzf" archive "-C" tempdir)))))
             (unless (zerop exit-code)
+              (when zip
+                (user-error "Unable to extract Hexagon source: %s"
+                            (string-trim (buffer-string))))
               ;; arXiv also serves a single source file compressed with
               ;; gzip.  In that case there is no tar container to unpack.
               (erase-buffer)
@@ -943,46 +956,121 @@ When called interactively, defaults to the arXiv URL at point if present."
   (interactive (list (library--read-arxiv-id)))
   (library--download-arxiv-source id))
 
+(defun library--hexagon-id (input)
+  "Return the Hexagon identifier in INPUT, or nil for other providers."
+  (let ((case-fold-search t)
+        (input (string-trim input)))
+    (when (string-match
+           "\\`\\(?:hexagon:\\|\\(?:https?://\\)?\\(?:www\\.\\)?hexagonmath\\.org/\\(?:\\(?:pdf\\|src\\)/\\)?\\)\\(.+\\)\\'"
+           input)
+      (let ((id (replace-regexp-in-string
+                 "[?#].*\\'" "" (match-string 1 input))))
+        (setq id (replace-regexp-in-string "\\(?:/\\|\\.pdf\\)\\'" "" id))
+        (unless (string-match-p "\\`[0-9]\\{4\\}\\.[0-9]\\{5\\}\\(?:v[0-9]+\\)?\\'" id)
+          (user-error "Invalid Hexagon identifier: %s" id))
+        id))))
+
+(defun library--bibtex-from-hexagon-id (id)
+  "Retrieve Hexagon's BibTeX for ID, including contributors for naming."
+  (let ((file (make-temp-file "library-hexagon-" nil ".bib")))
+    (unwind-protect
+        (progn
+          (library--download-url-to-file
+           (concat "https://hexagonmath.org/api/bibtex/" id) file)
+          (with-temp-buffer
+            (bibtex-mode)
+            (insert-file-contents file)
+            (goto-char (point-min))
+            (unless (looking-at-p "[[:space:]]*@")
+              (user-error "No Hexagon BibTeX entry found for %s" id))
+            (bibtex-beginning-of-entry)
+            (let* ((entry (bibtex-parse-entry))
+                   (note (bibtex-text-in-field "note" entry)))
+              ;; Hexagon credits contributors in a note, but the library
+              ;; needs an author or editor field to name and log the PDF.
+              (when (and (not (bibtex-text-in-field "author" entry))
+                         note (string-prefix-p "Contributors: " note))
+                (goto-char (point-max))
+                (search-backward "}")
+                (insert ",\n  author={"
+                        (replace-regexp-in-string
+                         "; *" " and " (substring note (length "Contributors: ")))
+                        "}\n")))
+            (buffer-string)))
+      (delete-file file))))
+
+(defun library--download-hexagon-source-noerror (id &optional name)
+  "Download and extract Hexagon source for ID, using NAME if supplied."
+  (condition-case err
+      (let* ((archive (make-temp-file "library-hexagon-" nil ".zip"))
+             (target (library--arxiv-source-directory-path
+                      (or name (concat "hexagon-" id)))))
+        (unwind-protect
+            (progn
+              (library--download-url-to-file
+               (concat "https://hexagonmath.org/src/" id) archive)
+              (library--extract-tar-gz archive target t))
+          (delete-file archive)))
+    (error (message "Unable to download Hexagon source: %s"
+                    (error-message-string err))
+           nil)))
+
+;;;###autoload
+(defalias 'library-download-preprint #'library-download-arxiv)
+
 ;;;###autoload
 (defun library-download-arxiv (id)
-  "Download and process the PDF with given arXiv ID.
+  "Download and process an arXiv or Hexagon preprint given by ID.
+ID may be an arXiv identifier or URL, a Hexagon URL, or hexagon:ID.
+Bare identifiers refer to arXiv.  See also `library-download-preprint'.
 When called interactively, defaults to URL at point if present.
 When `library-download-arxiv-include-source' is non-nil, also download
-the arXiv source archive and extract it into a directory named after the
+the preprint source archive and extract it into a directory named after the
 processed PDF.  Interactively, visit the processed PDF.
 
 Return a plist whose `:pdf' value is the processed PDF path, or the
 downloaded PDF path when processing fails, and whose `:source' value is
 the extracted source directory, or nil if no source was downloaded."
-  (interactive (list (library--read-arxiv-id)))
+  (interactive (list (read-string "Preprint ID or URL: "
+                                  (thing-at-point 'url t))))
   (save-excursion
     (let* ((id (library--ensure-utf8-encoding id))
-           (id (library--normalize-arxiv-id id))
-           (url (library--arxiv-pdf-url id))
+           (hexagon-id (library--hexagon-id id))
+           (id (or hexagon-id (library--normalize-arxiv-id id)))
+           (source-function (if hexagon-id
+                                #'library--download-hexagon-source-noerror
+                              #'library--download-arxiv-source-noerror))
+           (url (if hexagon-id (concat "https://hexagonmath.org/pdf/" id)
+                  (library--arxiv-pdf-url id)))
            (outfile (expand-file-name
                      (format "%s.pdf"
-                             (library--arxiv-id-file-basename
-                              (library--arxiv-id-with-legacy-prefix id)))
+                             (if hexagon-id (concat "hexagon-" id)
+                               (library--arxiv-id-file-basename
+                                (library--arxiv-id-with-legacy-prefix id))))
                      library-download-directory)))
       (library--download-url-to-file url outfile)
       (condition-case err
-          (let ((newfile (library-process-arxiv outfile id)))
+          (let ((newfile (if hexagon-id
+                             (library--process-pdf-bibtex-with-log
+                              outfile (library--bibtex-from-hexagon-id id)
+                              (concat "hexagon:" id))
+                           (library-process-arxiv outfile id))))
             (if newfile
                 (let ((source
                        (when library-download-arxiv-include-source
-                         (library--download-arxiv-source-noerror
+                         (funcall source-function
                           id (file-name-base newfile)))))
                   (when (called-interactively-p 'interactive)
                     (find-file newfile))
                   (list :pdf newfile :source source))
               (let ((source
                      (when library-download-arxiv-include-source
-                       (library--download-arxiv-source-noerror id))))
+                       (funcall source-function id))))
                 (message "PDF downloaded but not processed.")
                 (list :pdf outfile :source source))))
         (error
          (when library-download-arxiv-include-source
-           (library--download-arxiv-source-noerror id))
+           (funcall source-function id))
          (signal (car err) (cdr err)))))))
 
 (provide 'library)
