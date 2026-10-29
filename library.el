@@ -311,17 +311,25 @@ string (already cleaned for filenames)."
          (clean-title (library--clean-title title)))
     (library--bounded-pdf-basename year processed-authors clean-title)))
 
+(defun library--bibtex-field (field)
+  "Return nonblank FIELD from the current BibTeX entry, or nil."
+  (when-let* ((value (bibtex-text-in-field field t)))
+    (setq value (string-trim value))
+    (unless (string-empty-p value) value)))
+
 (defun library--filename-from-bibtex ()
   "Generate filename from current bibtex entry.
-Uses publication year, author last names, and title."
+Uses publication year, author last names, and title.
+Missing or blank years use \"undated\" without changing the entry."
   (bibtex-beginning-of-entry)
   (when-let* ((entry (bibtex-parse-entry))
-              (year (bibtex-text-in-field "year" entry))
-              (author (czm-tex-util-remove-braces-accents
-                       (or (bibtex-text-in-field "author" entry)
-                           (bibtex-text-in-field "editor" entry))))
-              (title (czm-tex-util-remove-braces-accents (bibtex-text-in-field "title" entry))))
-    (funcall library-generate-filename-function entry year author title)))
+              (author (or (library--bibtex-field "author")
+                          (library--bibtex-field "editor")))
+              (title (library--bibtex-field "title")))
+    (funcall library-generate-filename-function entry
+             (or (library--bibtex-field "year") "undated")
+             (czm-tex-util-remove-braces-accents author)
+             (czm-tex-util-remove-braces-accents title))))
 
 (defun library--filename-from-bibtex-string (bibtex)
   "Generate filename from BIBTEX without depositing it in references."
@@ -371,6 +379,9 @@ replacement without making a backup; callers should preserve any version
 they want to retain.  FILE already at the destination is not moved.
 Optional ARXIV-ID adds an arXiv link to the journal entry.
 Journal capture follows `library-org-capture-template-key'; nil disables it.
+The entry needs a citation key, title, and author or editor.  The year is
+optional; absent or blank years use \"undated\" in filenames and journal
+properties without adding a year to the BibTeX entry.
 This function does not download files or arXiv sources."
   (let* ((file (expand-file-name file))
          (key (library--bibtex-key bibtex))
@@ -383,7 +394,7 @@ This function does not download files or arXiv sources."
                     (buffer-substring-no-properties beg (point)))
                 bibtex))))
          (name (or (library--filename-from-bibtex-string bibtex)
-                   (user-error "BibTeX needs year, title, and author or editor")))
+                   (user-error "BibTeX needs title and author or editor")))
          (path (library--path-of-name name))
          (same-file (file-equal-p file path)))
     (unless (file-readable-p file)
@@ -397,6 +408,100 @@ This function does not download files or arXiv sources."
     (library--capture-journal-entry
      (library--generate-log-entry arxiv-id bibtex path))
     path))
+
+(defvar-local library--manual-file nil
+  "PDF being filed from the current citation buffer.")
+
+(defvar-local library--manual-window-configuration nil
+  "Window configuration before opening the citation buffer.")
+
+;;;###autoload
+(defun library-process-manual (&optional file bibtex)
+  "Prepare a citation for local PDF FILE and review it before filing.
+Use the current buffer's file or the Dired file at point by default;
+otherwise prompt for a file.  With a prefix argument, always prompt.
+Optional BIBTEX supplies an entry to edit instead of the default template.
+Return the citation buffer, displayed in `bibtex-mode'.
+
+Edit the citation key, author, title, and any other fields needed.
+The year may be left blank.  Type \\[library-manual-finish] to file the PDF,
+register the citation, and create the usual journal entry, or
+\\[library-manual-cancel] to cancel without filing anything.
+
+For unattended filing from Lisp, use `library-import-pdf' instead."
+  (interactive
+   (list (unless current-prefix-arg
+           (if (derived-mode-p 'dired-mode)
+               (dired-get-filename nil t)
+             buffer-file-name))))
+  (setq file (expand-file-name
+              (or file (read-file-name "PDF to file: "
+                                       library-download-directory nil t))))
+  (unless (and (file-regular-p file) (file-readable-p file)
+               (equal (downcase (or (file-name-extension file) "")) "pdf"))
+    (user-error "Not a readable PDF file: %s" file))
+  (let ((configuration (current-window-configuration))
+        (buffer (generate-new-buffer
+                 (format "*Library citation: %s*" (file-name-nondirectory file))))
+        (key (string-trim
+              (replace-regexp-in-string
+               "[^a-z0-9:-]+" "-"
+               (downcase (library--unaccent-string (file-name-base file))))
+              "-+" "-+")))
+    (with-current-buffer buffer
+      (bibtex-mode)
+      (use-local-map (copy-keymap bibtex-mode-map))
+      (local-set-key (kbd "C-c C-c") #'library-manual-finish)
+      (local-set-key (kbd "C-c C-k") #'library-manual-cancel)
+      (setq-local library--manual-file file
+                  library--manual-window-configuration configuration
+                  header-line-format
+                  "Edit citation; C-c C-c: file PDF; C-c C-k: cancel (year optional)")
+      (insert (or bibtex
+                  (format "@unpublished{%s,\n  author = {},\n  title = {},\n  year = {},\n  note = {}\n}\n"
+                          (if (string-empty-p key) "paper" key))))
+      (goto-char (point-min))
+      (search-forward "author = {" nil t)
+      (set-buffer-modified-p nil))
+    (let ((pdf (find-file-noselect file)))
+      (unless (get-buffer-window pdf)
+        (switch-to-buffer pdf)))
+    (pop-to-buffer buffer '(display-buffer-pop-up-window))
+    buffer))
+
+(defun library-manual-cancel ()
+  "Discard the current library citation buffer and restore its windows."
+  (interactive)
+  (unless library--manual-file
+    (user-error "Not a library citation buffer"))
+  (let ((configuration library--manual-window-configuration))
+    (set-buffer-modified-p nil)
+    (kill-buffer (current-buffer))
+    (set-window-configuration configuration)))
+
+(defun library-manual-finish ()
+  "File the PDF using the current citation buffer's single BibTeX entry.
+Leave the buffer available for correction if filing fails.
+Existing citation keys and destination PDFs are refused."
+  (interactive)
+  (unless library--manual-file
+    (user-error "Not a library citation buffer"))
+  (let* ((bibtex (buffer-substring-no-properties (point-min) (point-max)))
+         (key (library--bibtex-key bibtex)))
+    (save-excursion
+      (goto-char (point-min))
+      (bibtex-end-of-entry)
+      (skip-chars-forward " \t\r\n")
+      (unless (eobp)
+        (user-error "Keep exactly one BibTeX entry in the citation buffer")))
+    (when (with-current-buffer (find-file-noselect library-bibtex-file)
+            (save-excursion (bibtex-search-entry key)))
+      (user-error "Citation key %s already exists; choose a new key" key))
+    (let ((path (library-import-pdf library--manual-file bibtex)))
+      (library-manual-cancel)
+      (find-file path)
+      (message "Filed %s (citation key: %s)" path key)
+      path)))
 
 (defun library--path-of-name (name)
   "Return full path of file NAME in PDF directory.
@@ -443,14 +548,14 @@ Optionally, make use of specified ARXIV-ID."
               (bibtex-parse-entry)))
            (author (library--ensure-utf8-encoding
                     (czm-tex-util-remove-braces-accents
-                     (or (bibtex-text-in-field "author" entry)
-                         (bibtex-text-in-field "editor" entry)))))
+                     (or (library--bibtex-field "author")
+                         (library--bibtex-field "editor")))))
            (title
             (library--ensure-utf8-encoding
              (string-clean-whitespace
               (czm-tex-util-remove-braces-accents
                (bibtex-text-in-field "title" entry)))))
-           (year (bibtex-text-in-field "year" entry)))
+           (year (or (library--bibtex-field "year") "undated")))
       (concat
        title
        (when arxiv-id
@@ -459,12 +564,13 @@ Optionally, make use of specified ARXIV-ID."
            (format " (arXiv:%s)  :arxiv" arxiv-id)))
        "\n"
        ":PROPERTIES:\n"
+       (format ":CITEKEY: %s\n" (cdr (assoc "=key=" entry)))
        (when arxiv-id
          (if (string-prefix-p "hexagon:" arxiv-id)
              (format ":HEXAGON_ID: %s\n" (substring arxiv-id 8))
            (format ":ARXIV_ID: %s\n" arxiv-id)))
        (format ":YEAR: %s\n" year)
-       (format (if (bibtex-text-in-field "author" entry)
+       (format (if (library--bibtex-field "author")
                    ":AUTHORS: %s\n"
                  ":EDITORS: %s\n")
                author)

@@ -26,6 +26,27 @@ If the paper came from the arXiv, then, after opening it in Emacs, I run the com
 ** Processing papers downloaded from other sources: =library-process-clipboard=
 For a paper coming from somewhere other than the arXiv (or an old non-math arXiv paper), I find a BibTeX entry for that paper (typically using [[https://mathscinet.ams.org/mathscinet/publications-search][MathSciNet]]) and copy it to the clipboard.  Then, after opening the paper in Emacs, I run the command =library-process-clipboard=.  This carries out the same steps as above, but using the BibTeX stored in the clipboard rather than that obtained via the arXiv API.
 
+** Filing drafts and other local documents: =library-process-manual=
+For a thesis draft, informal notes, or another PDF without a downloadable
+citation, run =library-process-manual= while viewing the PDF or on its file
+in Dired.  Elsewhere it prompts for a file; a prefix argument always prompts.
+
+The command displays the PDF and a BibTeX template in separate windows.
+Edit the suggested citation key and fill in the author and title.  The
+template defaults to =@unpublished=; change the entry type and add fields
+as needed.  Use =note=
+for descriptions such as "Draft habilitation thesis, Université de Lille".
+Leave the year blank if it is unknown: the filename will use =undated=,
+without inventing a year in your bibliography.
+
+Type =C-c C-c= to move and rename the PDF, register the citation, and create
+the usual journal entry.  The PDF opens at its new location, and the
+minibuffer reports the citation key.  Type =C-c C-k= to discard the template
+and return to your previous windows without filing anything.  Filing errors
+leave the template available for correction.  Existing citation keys and
+destination files are refused, so a draft cannot silently replace an older
+copy.  Keep personal reading or review notes in the journal entry.
+
 * Configuration
 This package requires [[https://github.com/ultronozm/czm-tex-util.el][czm-tex-util.el]], so install that first.
 
@@ -58,7 +79,7 @@ The three commands that I use most often were described already in [[Overview]].
 - =library-process-arxiv-manual-id= :: The command =library-process-arxiv= determines the arXiv identifier for the current file by looking at the file name.  This command behaves similarly, but instead prompts for the arXiv identifier from the minibuffer.  Useful for arXiv downloads that you've already renamed.
 - =library-process-arxiv-dired= :: This command processes the marked PDF files in [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html][Dired]], assuming that each file has been downloaded from the arXiv and has not been renamed.  This is useful for when you have multiple unprocessed downloaded arXiv papers.
 - =library-clipboard-to-refs= :: This command adds the BibTeX stored in the clipboard to the references file.  Useful for when you want to a cite a paper, but don't care to download it.
-- =library-move-pdf= :: This command moves a PDF file to the designated PDF storage folder and prompts for a new filename.  Useful for files that do not have BibTeX entries available (e.g., informal notes or book chapters).
+- =library-move-pdf= :: Move a PDF to the storage folder with a manually supplied filename, without registering a citation.  Use =library-process-manual= to make it citable as well.
 
 * Importing a PDF from Lisp
 Use =library-import-pdf= with a local PDF path and a BibTeX entry string:
@@ -76,3 +97,23 @@ an existing destination by default, before changing files or bibliography.
 Replacement does not make a backup.  Downloading files, updating existing
 metadata, and preserving older versions remain the caller's responsibility.
 Edited volumes use their editors in filenames and an =EDITORS= journal property.
+Entries require a nonblank title and author or editor; the year is optional.
+Missing or blank years use =undated= in filenames and journal properties,
+while the BibTeX is stored as supplied.  Journal entries also record the
+citation key in a =CITEKEY= property.
+
+For example, an agent can file a draft directly:
+
+#+begin_src emacs-lisp
+(library-import-pdf
+ "/path/to/draft.pdf"
+ "@unpublished{lesesvre-hdr,
+  author = {Lesesvre, Didier},
+  title = {Arithmetic Statistics for Automorphic Forms},
+  note = {Draft habilitation thesis, Université de Lille}
+}")
+#+end_src
+
+To prepare an entry for human review instead, call
+=(library-process-manual FILE BIBTEX)=.  It returns the displayed citation
+buffer; nothing is filed until =C-c C-c=.
