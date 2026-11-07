@@ -128,10 +128,12 @@ buffer; nothing is filed until =C-c C-c=.
 The optional =library-agent-shell.el= integration provides
 =library-agent-shell-download-paper=.  Describe a paper by title, citation,
 DOI, URL, arXiv identifier, or local PDF path.  The command starts a new
-[[https://github.com/xenodium/agent-shell][agent-shell]] session in the bibliography's directory and immediately submits
-instructions to find the paper, verify its metadata and PDF, and file it
-through =library-import-pdf=.  The instructions use your configured library
-paths and ask the agent to preserve existing metadata and manuscript copies.
+[[https://github.com/xenodium/agent-shell][agent-shell]] session using the bibliography's directory as the starting
+context, subject to agent-shell's project detection and working-directory
+settings.  It immediately submits instructions to find the paper, verify
+its metadata and PDF, and file it through =library-import-pdf=.  The
+instructions use your configured library paths and ask the agent to
+preserve existing metadata and manuscript copies.
 The command returns the shell buffer, where you can follow its progress.
 
 Use =library-agent-shell-file-documents= to file PDFs you have already
