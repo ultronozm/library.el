@@ -514,6 +514,7 @@ Existing citation keys and destination PDFs are refused."
          (key (library--bibtex-key bibtex)))
     (save-excursion
       (goto-char (point-min))
+      (skip-chars-forward " \t\r\n")
       (bibtex-end-of-entry)
       (skip-chars-forward " \t\r\n")
       (unless (eobp)

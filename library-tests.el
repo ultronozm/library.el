@@ -651,7 +651,7 @@
            (library-org-capture-template-key nil)
            (auto-mode-alist '(("\\.pdf\\'" . fundamental-mode)))
            (source (expand-file-name "HDR_DRAFT.pdf" dir))
-           (bib "@unpublished{Draft, author={Doe, Jane}, title={Draft}, year={}}")
+           (bib "\n@unpublished{Draft, author={Doe, Jane}, title={Draft}, year={}}")
            citation pdf-buffer dired-buffer)
       (unwind-protect
           (progn
