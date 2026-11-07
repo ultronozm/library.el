@@ -118,7 +118,7 @@ To prepare an entry for human review instead, call
 =(library-process-manual FILE BIBTEX)=.  It returns the displayed citation
 buffer; nothing is filed until =C-c C-c=.
 
-* Retrieving a paper with an agent
+* Retrieving and filing papers with an agent
 The optional =library-agent-shell.el= integration provides
 =library-agent-shell-download-paper=.  Describe a paper by title, citation,
 DOI, URL, arXiv identifier, or local PDF path.  The command starts a new
@@ -128,10 +128,17 @@ through =library-import-pdf=.  The instructions use your configured library
 paths and ask the agent to preserve existing metadata and manuscript copies.
 The command returns the shell buffer, where you can follow its progress.
 
+Use =library-agent-shell-file-documents= to file PDFs you have already
+downloaded.  It prompts for a PDF or directory, starting in
+=library-download-directory=.  For directories, only the PDFs directly
+inside are considered.  In Dired it uses marked files, or the file at point;
+with a prefix argument it always prompts.  This command permits metadata
+lookups but tells the agent not to download PDFs or source archives.
+
 Install agent-shell separately to use this feature; ordinary library commands
 do not require it.  With a checkout on =load-path=, run
 =(require 'library-agent-shell)= first.  Package managers that generate
-package autoloads expose the command automatically.  Installing only the
+package autoloads expose both commands automatically.  Installing only the
 single =library.el= file does not include this optional integration.
 
 By default, agent-shell offers its usual agent selection, honoring
