@@ -11,7 +11,8 @@
 
 ;; The integration does not use czm-tex-util; avoid its unrelated dependencies.
 (unless (featurep 'czm-tex-util)
-  (provide 'czm-tex-util))
+  (provide 'czm-tex-util)
+  (defun czm-tex-util-remove-braces-accents (s) s))
 (defvar agent-shell-session-strategy 'prompt)
 (require 'library-agent-shell)
 
