@@ -102,6 +102,12 @@ Missing or blank years use =undated= in filenames and journal properties,
 while the BibTeX is stored as supplied.  Journal entries also record the
 citation key in a =CITEKEY= property.
 
+A failed move leaves the bibliography unchanged.  Once the PDF has been
+filed, a bibliography save or journal capture failure produces a warning
+and still returns its path.  After a save failure, the new citation remains
+in the bibliography buffer named in the warning; check and save that buffer
+to finish registering it.
+
 For example, an agent can file a draft directly:
 
 #+begin_src emacs-lisp

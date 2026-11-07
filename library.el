@@ -355,18 +355,21 @@ Missing or blank years use \"undated\" without changing the entry."
         (user-error "BibTeX entry has no citation key"))
       key)))
 
-(defun library--deposit-bibtex-return-filename (bibtex)
+(defun library--deposit-bibtex-return-filename (bibtex &optional no-save)
   "Deposit BIBTEX into references file, return suitable filename.
-Reuse an existing entry with the same citation key without changing it."
+Reuse an existing entry with the same citation key without changing it.
+With NO-SAVE, leave any new entry unsaved in the bibliography buffer."
   (let ((key (library--bibtex-key bibtex)))
     (with-current-buffer (find-file-noselect library-bibtex-file)
-      (save-excursion
-        (unless (bibtex-search-entry key)
-          (goto-char (point-max))
-          (insert "\n" bibtex)
-          (save-buffer)
-          (bibtex-search-entry key))
-        (library--filename-from-bibtex)))))
+      (save-restriction
+        (widen)
+        (save-excursion
+          (unless (bibtex-search-entry key)
+            (goto-char (point-max))
+            (insert "\n" bibtex)
+            (unless no-save (save-buffer))
+            (bibtex-search-entry key))
+          (library--filename-from-bibtex))))))
 
 ;;;###autoload
 (defun library-import-pdf (file bibtex &optional replace arxiv-id)
@@ -380,20 +383,25 @@ replacement without making a backup; callers should preserve any version
 they want to retain.  FILE already at the destination is not moved.
 Optional ARXIV-ID adds an arXiv link to the journal entry.
 Journal capture follows `library-org-capture-template-key'; nil disables it.
+After moving the PDF, a bibliography save or journal capture failure
+warns and returns the filed path.  A failed save leaves the new entry in
+the bibliography buffer for you to check and save.
 The entry needs a citation key, title, and author or editor.  The year is
 optional; absent or blank years use \"undated\" in filenames and journal
 properties without adding a year to the BibTeX entry.
 This function does not download files or arXiv sources."
   (let* ((file (expand-file-name file))
          (key (library--bibtex-key bibtex))
-         (bibtex
+         (existing
           (with-current-buffer (find-file-noselect library-bibtex-file)
-            (save-excursion
-              (if (bibtex-search-entry key)
+            (save-restriction
+              (widen)
+              (save-excursion
+                (when (bibtex-search-entry key)
                   (let ((beg (point)))
                     (bibtex-end-of-entry)
-                    (buffer-substring-no-properties beg (point)))
-                bibtex))))
+                    (buffer-substring-no-properties beg (point))))))))
+         (bibtex (or existing bibtex))
          (name (or (library--filename-from-bibtex-string bibtex)
                    (user-error "BibTeX needs title and author or editor")))
          (path (library--path-of-name name))
@@ -403,11 +411,26 @@ This function does not download files or arXiv sources."
     (when (and (file-exists-p path) (not same-file) (not replace))
       (signal 'file-already-exists (list "Library PDF already exists" path)))
     (make-directory library-pdf-directory t)
-    (library--deposit-bibtex-return-filename bibtex)
-    (unless same-file
-      (dired-rename-file file path replace))
-    (library--capture-journal-entry
-     (library--generate-log-entry arxiv-id bibtex path))
+    (with-current-buffer (find-file-noselect library-bibtex-file)
+      (atomic-change-group
+        (library--deposit-bibtex-return-filename bibtex t)
+        (unless same-file
+          (dired-rename-file file path replace)))
+      (unless existing
+        (condition-case err
+            (save-buffer)
+          ((error quit)
+           (display-warning
+            'library
+            (format "PDF filed at %s; check bibliography buffer %s after save failure: %s"
+                    path (buffer-name) (error-message-string err)))))))
+    (condition-case err
+        (library--capture-journal-entry
+         (library--generate-log-entry arxiv-id bibtex path))
+      ((error quit)
+       (display-warning 'library
+                        (format "PDF filed at %s; journal entry failed: %s"
+                                path (error-message-string err)))))
     path))
 
 (defvar-local library--manual-file nil
@@ -496,7 +519,9 @@ Existing citation keys and destination PDFs are refused."
       (unless (eobp)
         (user-error "Keep exactly one BibTeX entry in the citation buffer")))
     (when (with-current-buffer (find-file-noselect library-bibtex-file)
-            (save-excursion (bibtex-search-entry key)))
+            (save-restriction
+              (widen)
+              (save-excursion (bibtex-search-entry key))))
       (user-error "Citation key %s already exists; choose a new key" key))
     (let ((path (library-import-pdf library--manual-file bibtex)))
       (library-manual-cancel)
