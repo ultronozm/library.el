@@ -39,6 +39,7 @@
 ;;; Code:
 
 (require 'bibtex)
+(require 'cl-lib)
 (require 'czm-tex-util)
 (require 'dired)
 (require 'org-capture)
@@ -1125,14 +1126,16 @@ When called interactively, defaults to the arXiv URL at point if present."
 (defalias 'library-download-preprint #'library-download-arxiv)
 
 ;;;###autoload
-(defun library-download-arxiv (id)
+(cl-defun library-download-arxiv
+    (id &optional (download-source library-download-arxiv-include-source))
   "Download and process an arXiv or Hexagon preprint given by ID.
 ID may be an arXiv identifier or URL, a Hexagon URL, or hexagon:ID.
 Bare identifiers refer to arXiv.  See also `library-download-preprint'.
 When called interactively, defaults to URL at point if present.
-When `library-download-arxiv-include-source' is non-nil, also download
-the preprint source archive and extract it into a directory named after the
-processed PDF.  Interactively, visit the processed PDF.
+When DOWNLOAD-SOURCE is non-nil, also download the preprint source archive
+and extract it into a directory named after the processed PDF.  When
+omitted, DOWNLOAD-SOURCE defaults to `library-download-arxiv-include-source'.
+Interactively, visit the processed PDF.
 
 Return a plist whose `:pdf' value is the processed PDF path, or the
 downloaded PDF path when processing fails, and whose `:source' value is
@@ -1163,19 +1166,19 @@ the extracted source directory, or nil if no source was downloaded."
                            (library-process-arxiv outfile id))))
             (if newfile
                 (let ((source
-                       (when library-download-arxiv-include-source
+                       (when download-source
                          (funcall source-function
                           id (file-name-base newfile)))))
                   (when (called-interactively-p 'interactive)
                     (find-file newfile))
                   (list :pdf newfile :source source))
               (let ((source
-                     (when library-download-arxiv-include-source
+                     (when download-source
                        (funcall source-function id))))
                 (message "PDF downloaded but not processed.")
                 (list :pdf outfile :source source))))
         (error
-         (when library-download-arxiv-include-source
+         (when download-source
            (funcall source-function id))
          (signal (car err) (cdr err)))))))
 
