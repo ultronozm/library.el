@@ -977,21 +977,15 @@ falling back to an arXiv-id basename."
        (library--arxiv-id-file-basename
         (library--arxiv-id-with-legacy-prefix id)))))
 
-(defun library--delete-file-or-directory (path)
-  "Delete file or directory at PATH, if it exists."
-  (cond
-   ((file-directory-p path)
-    (delete-directory path t))
-   ((file-exists-p path)
-    (delete-file path))))
-
 (defun library--extract-tar-gz (archive target-directory &optional zip)
   "Extract gzipped arXiv source ARCHIVE into TARGET-DIRECTORY.
 When ZIP is non-nil, extract a ZIP archive using unzip instead.
 ARCHIVE may be either a tar archive or a gzip-compressed single source
 file.  The latter is written as `source.tex'.
-Any existing file or directory at TARGET-DIRECTORY is replaced after the
-archive has been successfully extracted into a temporary directory."
+Refuse an existing TARGET-DIRECTORY, preserving any local source edits."
+  (when (file-exists-p target-directory)
+    (signal 'file-already-exists
+            (list "Source destination already exists" target-directory)))
   (let ((tar (or (executable-find (if zip "unzip" "tar"))
                  (user-error "Cannot find %s executable" (if zip "unzip" "tar"))))
         (parent (file-name-directory (directory-file-name target-directory)))
@@ -1022,7 +1016,6 @@ archive has been successfully extracted into a temporary directory."
               (unless (zerop exit-code)
                 (user-error "Unable to extract arXiv source archive: %s"
                             (string-trim (buffer-string))))))
-          (library--delete-file-or-directory target-directory)
           (rename-file tempdir target-directory)
           (setq renamed t)
           target-directory)
@@ -1135,7 +1128,8 @@ When called interactively, defaults to URL at point if present.
 When DOWNLOAD-SOURCE is non-nil, also download the preprint source archive
 and extract it into a directory named after the processed PDF.  When
 omitted, DOWNLOAD-SOURCE defaults to `library-download-arxiv-include-source'.
-Interactively, visit the processed PDF.
+Existing source destinations are left untouched and reported as a source
+download failure.  Interactively, visit the processed PDF.
 
 Return a plist whose `:pdf' value is the processed PDF path, or the
 downloaded PDF path when processing fails, and whose `:source' value is

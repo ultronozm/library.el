@@ -234,7 +234,15 @@
                              (insert-file-contents
                               (expand-file-name "paper.tex" outdir))
                              (buffer-string))
-                           "\\documentclass{article}\n\\begin{document}\nHi.\n\\end{document}\n"))))
+                           "\\documentclass{article}\n\\begin{document}\nHi.\n\\end{document}\n"))
+            (let ((notes (expand-file-name "local-notes.tex" outdir)))
+              (with-temp-file notes (insert "Local source edits"))
+              (should-error (library-download-arxiv-source "0309136")
+                            :type 'file-already-exists)
+              (should (equal (with-temp-buffer
+                               (insert-file-contents notes)
+                               (buffer-string))
+                             "Local source edits")))))
       (delete-file archive)
       (delete-directory library-arxiv-source-directory t))))
 
