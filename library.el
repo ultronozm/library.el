@@ -209,25 +209,59 @@ This approximates the filesystem byte limit by encoding using
         (setq result (concat result (char-to-string unaccented)))))
     result))
 
+(defcustom library-filename-full-name-authors '("Yifei Zhao")
+  "Authors whose full names should appear in filenames.
+Use given-name-first order.  Matching ignores case and accents.
+Surnames of three letters or fewer already use full names."
+  :type '(repeat string)
+  :group 'library)
+
+(defun library--author-slug (name)
+  "Return the filename component for NAME."
+  (downcase
+   (replace-regexp-in-string
+    " +" "-"
+    (replace-regexp-in-string
+     "[^a-zA-Z ]" ""
+     (library--unaccent-string (string-trim name))))))
+
 (defun library--process-authors (normalized-author)
-  "Convert NORMALIZED-AUTHOR string to a list of processed author last names."
-  (let ((author-list
-         (split-string normalized-author
-                       (rx (seq (zero-or-more space)
-                                word-boundary (group (or "and" ","))
-                                word-boundary (zero-or-more space))))))
-    (mapcar (lambda (author-name)
-              (let ((first-part (car (split-string author-name ", "))))
-                (downcase
-                 (replace-regexp-in-string
-                  " " "-"
-                  (replace-regexp-in-string
-                   "[^a-zA-Z ]" ""
-                   (library--unaccent-string first-part))))))
-            author-list)))
+  "Return author filename components for NORMALIZED-AUTHOR.
+Use surnames, except for surnames of up to three letters and authors
+in `library-filename-full-name-authors', which use full names.
+Accept BibTeX's First Last, Last, First, and Last, Jr, First forms."
+  (mapcar
+   (lambda (author-name)
+     (let* ((parts (split-string author-name "," t "[[:space:]]+"))
+            (words (split-string author-name))
+            (surname
+             (if (cdr parts)
+                 (car parts)
+               ;; Include lowercase surname particles, e.g. von Neumann.
+               (let* ((remaining (reverse words))
+                      (last (list (pop remaining)))
+                      (case-fold-search nil))
+                 (while (and remaining
+                             (string-match-p "\\`[[:lower:]]" (car remaining)))
+                   (push (pop remaining) last))
+                 (string-join last " "))))
+            (full (pcase parts
+                    (`(,last ,first) (concat first " " last))
+                    (`(,last ,suffix ,first)
+                     (concat first " " last " " suffix))
+                    (_ author-name)))
+            (full-slug (library--author-slug full))
+            (surname-slug (library--author-slug surname)))
+       (if (or (<= (length (replace-regexp-in-string "-" "" surname-slug)) 3)
+               (member full-slug
+                       (mapcar #'library--author-slug
+                               library-filename-full-name-authors)))
+           full-slug
+         surname-slug)))
+   (split-string normalized-author "[[:space:]]+and[[:space:]]+" t)))
 
 (defun library--make-author-string (author)
-  "Convert AUTHOR string to a normalized author string for filenames."
+  "Convert AUTHOR string to normalized author names for filenames."
   (let* ((normalized-author (library--normalize-author author))
          (processed-authors (library--process-authors normalized-author)))
     (mapconcat #'identity processed-authors "_")))
@@ -246,7 +280,7 @@ This approximates the filesystem byte limit by encoding using
 (defun library--bounded-pdf-basename (year processed-authors clean-title)
   "Build a PDF base filename, shortening it if needed to respect byte limits.
 
-YEAR is a string.  PROCESSED-AUTHORS is a list of author last names as
+YEAR is a string.  PROCESSED-AUTHORS is a list of author names as
 strings (already cleaned for filenames).  CLEAN-TITLE is a cleaned title
 string (already cleaned for filenames)."
   (let* ((ext-bytes (library--file-name-bytes ".pdf"))
@@ -304,7 +338,8 @@ string (already cleaned for filenames)."
         name))))
 
 (defun library--generate-filename (_entry year author title)
-  "Generate filename from bibtex ENTRY, YEAR, AUTHOR, and TITLE."
+  "Generate filename from bibtex ENTRY, YEAR, AUTHOR, and TITLE.
+Use surnames, expanding short surnames and configured exceptions."
   (let* ((author (library--ensure-utf8-encoding author))
          (title (library--ensure-utf8-encoding title))
          (normalized-author (library--normalize-author author))
@@ -320,7 +355,7 @@ string (already cleaned for filenames)."
 
 (defun library--filename-from-bibtex ()
   "Generate filename from current bibtex entry.
-Uses publication year, author last names, and title.
+Uses publication year, normalized author names, and title.
 Missing or blank years use \"undated\" without changing the entry."
   (bibtex-beginning-of-entry)
   (when-let* ((entry (bibtex-parse-entry))

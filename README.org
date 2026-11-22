@@ -69,6 +69,14 @@ Download this repository, install using =M-x package-install-file= (or package-v
 
 Modify suitably, replacing the paths above with paths to your own PDF storage directory, BibTeX file, download directory, and log file.
 
+The default filename uses surnames, except that surnames of three letters
+or fewer use full names in given-name-first order.  For example, =Paul D.
+Nelson= becomes =nelson=, while =Le, Nhat Hoang= and =Nhat Hoang Le= both
+become =nhat-hoang-le=.  The option =library-filename-full-name-authors=
+lists additional full-name exceptions (by default, =Yifei Zhao=).
+Names retain only unaccented letters, with spaces replaced by hyphens.
+Existing files are not renamed when the naming policy changes.
+
 You can customize the file-naming scheme by modifying the user option =library-generate-filename-function=, e.g., by adding under the custom heading =:custom= above the entry =library-generate-filename-function my-filename-function= and writing your own function =(defun my-filename-function (entry year author title) ...)=, perhaps by copying the source code of the built-in default =library--generate-filename= and modifying it to your liking.
 
 * Usage

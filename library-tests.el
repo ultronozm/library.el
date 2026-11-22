@@ -1,3 +1,4 @@
+;;; -*- lexical-binding: t; -*-
 ;;; library-tests.el --- Tests for library.el        -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Paul D. Nelson
@@ -105,6 +106,31 @@
 }"))
     (should (equal (library--filename-from-bibtex-string bibtex)
                    "2026_jane-doe_john-roe--Sample-Title"))))
+
+(ert-deftest library-filenames-normalize-bibtex-author-order ()
+  (dolist (author '("Nhat Hoang Le and Yifei Zhao"
+                    "Le, Nhat Hoang and Zhao, Yifei"
+                    "Le,Nhat Hoang and Zhao,Yifei"))
+    (should (equal (library--filename-from-bibtex-string
+                    (format "@misc{K, author={%s}, title={Paper}, year={2026}}"
+                            author))
+                   "2026_nhat-hoang-le_yifei-zhao--Paper")))
+  (should (equal (library--generate-filename
+                  nil "2026" "von Neumann, John and Doe, Jr, Jane" "Paper")
+                 "2026_von-neumann_jane-doe-jr--Paper")))
+
+(ert-deftest library-filenames-use-surnames-with-selective-full-names ()
+  (dolist (author '("Paul D. Nelson and Weixiao Lu and Hang Xue"
+                    "Nelson, Paul D. and Lu, Weixiao and Xue, Hang"))
+    (should (equal (library--generate-filename nil "2026" author "Paper")
+                   "2026_nelson_weixiao-lu_hang-xue--Paper")))
+  (let ((library-filename-full-name-authors nil))
+    (should (equal (library--make-author-string "Zhao, Yifei") "zhao")))
+  (let ((library-filename-full-name-authors '("Paul D. Nelson")))
+    (should (equal (library--make-author-string "Nelson, Paul D.")
+                   "paul-d-nelson")))
+  (should (equal (library--make-author-string "John von Neumann")
+                 (library--make-author-string "von Neumann, John"))))
 
 (ert-deftest library--bibtex-from-arxiv-id-allows-missing-summary ()
   (let ((xml-response
@@ -344,7 +370,7 @@
                          "https://arxiv.org/abs/2608.30576")))
             (should (file-exists-p (plist-get result :pdf)))
             (should (equal (file-name-nondirectory (plist-get result :pdf))
-                           "2026_doe--Sample-Title.pdf"))
+                           "2026_jane-doe--Sample-Title.pdf"))
             (with-current-buffer (find-file-noselect library-bibtex-file)
               (should (bibtex-search-entry "2026arXiv2608.30576")))))
       (when-let* ((buffer (get-file-buffer library-bibtex-file)))
@@ -627,7 +653,7 @@
             (should (file-exists-p source))
             (should-not (file-exists-p library-bibtex-file)))
           (let ((path (library-import-pdf source bib)))
-            (should (equal (file-name-nondirectory path) "undated_doe--Draft.pdf"))
+            (should (equal (file-name-nondirectory path) "undated_jane-doe--Draft.pdf"))
             (should (file-exists-p path))
             (should-not (file-exists-p source)))
           (should (string-match-p ":YEAR: undated\n" log))
@@ -639,7 +665,7 @@
           ;; Blank years and blank author fields also support edited volumes.
           (should (equal (library--filename-from-bibtex-string
                           "@book{Edited, author={}, editor={Roe, Jane}, title={Notes}, year={ }}")
-                         "undated_roe--Notes")))
+                         "undated_jane-roe--Notes")))
       (when-let* ((buffer (get-file-buffer library-bibtex-file))) (kill-buffer buffer))
       (delete-directory dir t))))
 
@@ -701,7 +727,7 @@
               (save-buffer))
             ;; A destination collision preserves both versions and the draft.
             (make-directory library-pdf-directory)
-            (let ((path (expand-file-name "undated_doe--Draft.pdf" library-pdf-directory)))
+            (let ((path (expand-file-name "undated_jane-doe--Draft.pdf" library-pdf-directory)))
               (with-temp-file path (insert "older draft"))
               (should-error (library-manual-finish) :type 'file-already-exists)
               (should (buffer-live-p citation))
