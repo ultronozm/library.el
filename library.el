@@ -1016,6 +1016,30 @@ NAME is truncated if needed so that the final path component respects
   "Return full source directory path for basename NAME."
   (library--path-of-directory-name name library-arxiv-source-directory))
 
+;;;###autoload
+(defun library-find-preprint-source (pdf)
+  "Visit a downloaded TeX source file for PDF.
+Interactively, use the current PDF or the PDF at point in Dired.
+If the source directory contains several TeX files, prompt for one."
+  (interactive (list (if (derived-mode-p 'dired-mode)
+                         (dired-get-filename nil t)
+                       buffer-file-name)))
+  (unless (and pdf (equal (downcase (or (file-name-extension pdf) "")) "pdf"))
+    (user-error "Visit a preprint PDF or select one in Dired"))
+  (let ((directory (library--arxiv-source-directory-path (file-name-base pdf))))
+    (unless (file-directory-p directory)
+      (user-error "No downloaded source directory for this PDF: %s" directory))
+    (let ((files (directory-files-recursively directory "\\.[tT][eE][xX]\\'")))
+      (cond
+       ((null files) (user-error "No TeX files in %s" directory))
+       ((null (cdr files)) (find-file (car files)))
+       (t
+        (let ((names (mapcar (lambda (file) (file-relative-name file directory))
+                             files)))
+          (find-file (expand-file-name
+                      (completing-read "TeX source: " names nil t nil nil (car names))
+                      directory))))))))
+
 (defun library--arxiv-source-name-from-metadata (id)
   "Return year/authors/title source directory basename for arXiv ID.
 Return nil if metadata lookup or filename generation fails."
