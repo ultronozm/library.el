@@ -263,10 +263,13 @@
                            "\\documentclass{article}\n\\begin{document}\nHi.\n\\end{document}\n"))
             (let ((notes (expand-file-name "local-notes.tex" outdir)))
               (with-temp-file notes (insert "Local source edits"))
-              (should-error (library-download-arxiv-source "0309136")
-                            :type 'file-already-exists)
+              (should (equal (library-download-arxiv-source "0309136v2") outdir))
+              (should (equal called-url "https://arxiv.org/src/math/0309136v2"))
+              (should-not (file-exists-p notes))
               (should (equal (with-temp-buffer
-                               (insert-file-contents notes)
+                               (insert-file-contents
+                                (expand-file-name "local-notes.tex"
+                                                  (concat outdir ".~1~")))
                                (buffer-string))
                              "Local source edits")))))
       (delete-file archive)

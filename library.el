@@ -1038,13 +1038,15 @@ falling back to an arXiv-id basename."
        (library--arxiv-id-file-basename
         (library--arxiv-id-with-legacy-prefix id)))))
 
-(defun library--extract-tar-gz (archive target-directory &optional zip)
+(defun library--extract-tar-gz (archive target-directory &optional zip replace)
   "Extract gzipped arXiv source ARCHIVE into TARGET-DIRECTORY.
 When ZIP is non-nil, extract a ZIP archive using unzip instead.
 ARCHIVE may be either a tar archive or a gzip-compressed single source
 file.  The latter is written as `source.tex'.
-Refuse an existing TARGET-DIRECTORY, preserving any local source edits."
-  (when (file-exists-p target-directory)
+Refuse an existing TARGET-DIRECTORY unless REPLACE is non-nil.
+With REPLACE, preserve the old directory as a numbered backup after
+extracting the new archive successfully."
+  (when (and (file-exists-p target-directory) (not replace))
     (signal 'file-already-exists
             (list "Source destination already exists" target-directory)))
   (let ((tar (or (executable-find (if zip "unzip" "tar"))
@@ -1077,7 +1079,21 @@ Refuse an existing TARGET-DIRECTORY, preserving any local source edits."
               (unless (zerop exit-code)
                 (user-error "Unable to extract arXiv source archive: %s"
                             (string-trim (buffer-string))))))
-          (rename-file tempdir target-directory)
+          (let ((backup (when (and replace (file-exists-p target-directory))
+                          (let ((version 1) candidate)
+                            (while (file-exists-p
+                                    (setq candidate
+                                          (format "%s.~%d~" target-directory version)))
+                              (setq version (1+ version)))
+                            candidate))))
+            (when backup
+              (rename-file target-directory backup))
+            (condition-case err
+                (rename-file tempdir target-directory)
+              (error
+               (when backup (rename-file backup target-directory))
+               (signal (car err) (cdr err))))
+            (when backup (message "Previous source preserved in %s" backup)))
           (setq renamed t)
           target-directory)
       (when (and tempdir (file-exists-p tempdir) (not renamed))
@@ -1086,7 +1102,8 @@ Refuse an existing TARGET-DIRECTORY, preserving any local source edits."
 (defun library--download-arxiv-source (id &optional name)
   "Download and extract arXiv source archive for ID.
 If NAME is non-nil, use it as the extracted directory basename.  Otherwise,
-use a filesystem-safe version of ID."
+use a filesystem-safe version of ID.
+Existing sources are preserved as numbered backups before replacement."
   (let* ((id (library--normalize-arxiv-id id))
          (name (library--arxiv-source-name id name))
          (url (library--arxiv-source-url id))
@@ -1095,7 +1112,7 @@ use a filesystem-safe version of ID."
     (unwind-protect
         (progn
           (library--download-url-to-file url archive)
-          (library--extract-tar-gz archive target-directory)
+          (library--extract-tar-gz archive target-directory nil t)
           (message "arXiv source extracted to %s" target-directory)
           target-directory)
       (when (file-exists-p archive)
@@ -1189,8 +1206,10 @@ When called interactively, defaults to URL at point if present.
 When DOWNLOAD-SOURCE is non-nil, also download the preprint source archive
 and extract it into a directory named after the processed PDF.  When
 omitted, DOWNLOAD-SOURCE defaults to `library-download-arxiv-include-source'.
-Existing source destinations are left untouched and reported as a source
-download failure.  Interactively, visit the processed PDF.
+Existing arXiv source directories are updated, preserving the previous
+contents in a numbered backup.  Existing Hexagon source destinations are
+left untouched and reported as a source download failure.
+Interactively, visit the processed PDF.
 
 Return a plist whose `:pdf' value is the processed PDF path, or the
 downloaded PDF path when processing fails, and whose `:source' value is
